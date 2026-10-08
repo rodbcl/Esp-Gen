@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /home/rodbcl/esp/esp-idf/components && grep -n \"ESP_RETURN_ON_FALSE\\(channel && encoder\" -A2 esp_driver_rmt/src/rmt_tx.c; grep -n \"accum_count\\\\|max_glitch_ns\" esp_driver_pcnt/include/driver/pulse_cnt.h; grep -n \"enable_internal_pullup\\\\|i2c_master_probe\\(\" esp_driver_i2c/include/driver/i2c_master.h esp_driver_i2c/include/driver/i2c_types.h)",
+      "Read(//home/rodbcl/esp/esp-idf/components/**)"
+    ]
+  }
+}
