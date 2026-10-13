@@ -39,9 +39,10 @@ static const char *TAG = "app";
 
 #define LOOP_MS         5
 #define DEBOUNCE_MS     30
+#define STOP_HOLD_MS    2000    /* tempo segurando START para parar a geração */
 
 /* ---------- Configurações do usuário ---------- */
-typedef enum { MODE_TIME = 0, MODE_QTY = 1 } run_mode_t;
+typedef enum { MODE_TIME = 0, MODE_QTY = 1, MODE_CONT = 2, MODE_COUNT } run_mode_t;
 
 typedef struct {
     uint8_t version;
@@ -73,6 +74,7 @@ static int s_top;
 static settings_t s_edit_backup;
 static int64_t s_run_start_us;
 static uint64_t s_run_periods;
+static int s_run_sel;           /* modo contínuo: item ajustado pelo encoder (ITEM_FREQ ou ITEM_DUTY) */
 static int64_t s_msg_until_us;
 static char s_msg[2][21];
 

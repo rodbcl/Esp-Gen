@@ -3,6 +3,7 @@
 #include "driver/rmt_tx.h"
 #include "esp_check.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
 
 static const char *TAG = "pulse";
 
@@ -34,6 +35,33 @@ static rmt_encoder_handle_t s_enc;
 static gen_state_t s_gen;
 static volatile bool s_running;
 
+/* Nova freq/duty pedida por pulse_gen_set(), aplicada pelo encoder no início do próximo período */
+static portMUX_TYPE s_upd_lock = portMUX_INITIALIZER_UNLOCKED;
+static struct {
+    bool pending;
+    uint32_t freq;
+    uint32_t duty;
+} s_upd;
+
+static void set_freq(gen_state_t *g, uint32_t freq_hz, uint32_t duty_pct)
+{
+    g->freq = freq_hz;
+    g->duty = duty_pct;
+    g->period_base = RMT_RES_HZ / freq_hz;
+    g->period_rem = RMT_RES_HZ % freq_hz;
+    g->err = 0;
+}
+
+static void apply_update(gen_state_t *g)
+{
+    portENTER_CRITICAL_SAFE(&s_upd_lock);
+    if (s_upd.pending) {
+        s_upd.pending = false;
+        set_freq(g, s_upd.freq, s_upd.duty);
+    }
+    portEXIT_CRITICAL_SAFE(&s_upd_lock);
+}
+
 /* Fornece o próximo meio-símbolo (nível, duração). Retorna false quando acabou. */
 static bool next_half(gen_state_t *g, uint32_t *level, uint32_t *dur)
 {
@@ -52,7 +80,10 @@ static bool next_half(gen_state_t *g, uint32_t *level, uint32_t *dur)
         if (g->periods_left == 0) {
             return false;
         }
-        g->periods_left--;
+        if (g->periods_left != PULSE_GEN_CONTINUOUS) {
+            g->periods_left--;
+        }
+        apply_update(g);
 
         uint32_t p = g->period_base;
         g->err += g->period_rem;
@@ -147,13 +178,9 @@ esp_err_t pulse_gen_start(uint32_t freq_hz, uint32_t duty_pct, uint64_t periods)
         duty_pct = 100;
     }
 
-    s_gen = (gen_state_t) {
-        .freq = freq_hz,
-        .duty = duty_pct,
-        .period_base = RMT_RES_HZ / freq_hz,
-        .period_rem = RMT_RES_HZ % freq_hz,
-        .periods_left = periods,
-    };
+    s_gen = (gen_state_t) { .periods_left = periods };
+    set_freq(&s_gen, freq_hz, duty_pct);
+    s_upd.pending = false;
 
     rmt_transmit_config_t tx_cfg = {
         .loop_count = 0,
@@ -165,8 +192,32 @@ esp_err_t pulse_gen_start(uint32_t freq_hz, uint32_t duty_pct, uint64_t periods)
         s_running = false;
         return err;
     }
-    ESP_LOGI(TAG, "start: %lu Hz, %lu %%, %llu períodos",
-             (unsigned long)freq_hz, (unsigned long)duty_pct, (unsigned long long)periods);
+    if (periods == PULSE_GEN_CONTINUOUS) {
+        ESP_LOGI(TAG, "start: %lu Hz, %lu %%, contínuo", (unsigned long)freq_hz, (unsigned long)duty_pct);
+    } else {
+        ESP_LOGI(TAG, "start: %lu Hz, %lu %%, %llu períodos",
+                 (unsigned long)freq_hz, (unsigned long)duty_pct, (unsigned long long)periods);
+    }
+    return ESP_OK;
+}
+
+esp_err_t pulse_gen_set(uint32_t freq_hz, uint32_t duty_pct)
+{
+    if (freq_hz == 0 || freq_hz > RMT_RES_HZ / 20) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_running) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (duty_pct > 100) {
+        duty_pct = 100;
+    }
+    portENTER_CRITICAL(&s_upd_lock);
+    s_upd.freq = freq_hz;
+    s_upd.duty = duty_pct;
+    s_upd.pending = true;
+    portEXIT_CRITICAL(&s_upd_lock);
+    ESP_LOGI(TAG, "set: %lu Hz, %lu %%", (unsigned long)freq_hz, (unsigned long)duty_pct);
     return ESP_OK;
 }
 

@@ -8,13 +8,14 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 
 - **Frequência** de 1 Hz a 10 kHz
 - **Duty cycle** de 1 a 100 %, com resolução de 0,1 µs
-- **Dois modos de parada**
+- **Três modos**
   - **Tempo**: gera durante `mm:ss`, até 60 min
   - **Quantidade**: gera N pulsos, até 10.000
+  - **Contínuo**: gera até ser interrompido; frequência e duty podem ser alterados **durante** a geração (nos outros modos ficam fixos enquanto gera)
 - **Encoder com aceleração**: quanto mais rápido você gira, maior o passo (x1 → x10 → x100)
 - **Configurações salvas na NVS**: os valores voltam iguais depois de desligar
 - **Endereço do LCD detectado automaticamente** (PCF8574 em 0x20–0x27 ou PCF8574A em 0x38–0x3F)
-- **Botão START/STOP** para iniciar ou interromper a qualquer momento, com contagem regressiva ou progresso na tela
+- **Botão START/STOP**: toque para iniciar; **segure por 2 s** para interromper a qualquer momento, em qualquer modo (toques curtos durante a geração são ignorados). A tela mostra a contagem regressiva ou o progresso
 - **Saída segura no boot**: o pino de pulso é configurado como desligado antes de qualquer outra inicialização
 
 ## Hardware
@@ -41,13 +42,22 @@ O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmwar
   Freq:    1000Hz        Resta 00:07
 ```
 
-| Ação | Navegação (`>`) | Edição (`*`) | Rodando |
-|---|---|---|---|
-| Girar encoder | Move entre os itens | Altera o valor | — |
-| Clicar encoder | Entra em edição | Confirma e salva | — |
-| START | Inicia a geração | — | Interrompe |
+| Ação | Navegação (`>`) | Edição (`*`) | Rodando | Rodando (Contínuo) |
+|---|---|---|---|---|
+| Girar encoder | Move entre os itens | Altera o valor | — | Altera o valor marcado (`>`) |
+| Clicar encoder | Entra em edição | Confirma e salva | — | Alterna entre Freq e Duty |
+| START | Inicia a geração | — | Segurar 2 s: interrompe | Segurar 2 s: interrompe |
 
-Itens do menu: **Modo** (Tempo/Qtde), **Freq**, **Duty** e **Tempo** ou **Qtde**, conforme o modo escolhido.
+Itens do menu: **Modo** (Tempo/Qtde/Continuo), **Freq**, **Duty** e **Tempo** ou **Qtde**, conforme o modo escolhido (no modo Contínuo não há esse último item).
+
+No modo Contínuo a tela mostra o tempo decorrido e os valores ajustáveis:
+
+```
+CONT 00:01:23
+>1000Hz  50%
+```
+
+A nova frequência/duty entra no início do próximo período, sem cortar pulsos. Os valores alterados durante a geração são salvos na NVS ao parar.
 
 ## Compilação
 
@@ -70,6 +80,7 @@ Os principais parâmetros ficam em [main/app_main.h](main/app_main.h):
 | `ENC_REVERSE` | `false` | Inverte o sentido do encoder |
 | `PULSE_INVERTED` | `true` | Saída invertida pelo estágio com transistor |
 | `FREQ_MAX`, `TIME_MAX_S`, `QTY_MAX` | 10 kHz, 3600 s, 10000 | Limites dos valores |
+| `STOP_HOLD_MS` | 2000 | Tempo segurando START para interromper |
 
 ## Estrutura
 
