@@ -15,7 +15,7 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 - **Encoder com aceleração**: quanto mais rápido você gira, maior o passo (x1 → x10 → x100)
 - **Configurações salvas na NVS**: os valores voltam iguais depois de desligar
 - **Endereço do LCD detectado automaticamente** (PCF8574 em 0x20–0x27 ou PCF8574A em 0x38–0x3F)
-- **Botão START/STOP** para iniciar ou interromper a qualquer momento, com contagem regressiva ou progresso na tela
+- **Botão START/STOP**: toque para iniciar; **segure por 2 s** para interromper a qualquer momento, em qualquer modo (toques curtos durante a geração são ignorados). A tela mostra a contagem regressiva ou o progresso
 - **Saída segura no boot**: o pino de pulso é configurado como desligado antes de qualquer outra inicialização
 
 ## Hardware
@@ -46,7 +46,7 @@ O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmwar
 |---|---|---|---|---|
 | Girar encoder | Move entre os itens | Altera o valor | — | Altera o valor marcado (`>`) |
 | Clicar encoder | Entra em edição | Confirma e salva | — | Alterna entre Freq e Duty |
-| START | Inicia a geração | — | Interrompe | Interrompe |
+| START | Inicia a geração | — | Segurar 2 s: interrompe | Segurar 2 s: interrompe |
 
 Itens do menu: **Modo** (Tempo/Qtde/Continuo), **Freq**, **Duty** e **Tempo** ou **Qtde**, conforme o modo escolhido (no modo Contínuo não há esse último item).
 
@@ -80,6 +80,7 @@ Os principais parâmetros ficam em [main/app_main.h](main/app_main.h):
 | `ENC_REVERSE` | `false` | Inverte o sentido do encoder |
 | `PULSE_INVERTED` | `true` | Saída invertida pelo estágio com transistor |
 | `FREQ_MAX`, `TIME_MAX_S`, `QTY_MAX` | 10 kHz, 3600 s, 10000 | Limites dos valores |
+| `STOP_HOLD_MS` | 2000 | Tempo segurando START para interromper |
 
 ## Estrutura
 

@@ -91,6 +91,8 @@ typedef struct {
     bool stable;        /* true = pressionado */
     bool last_raw;
     int64_t changed_us;
+    int64_t pressed_us;  /* instante em que foi pressionado (após debounce) */
+    bool hold_done;      /* pressão longa já tratada (ou ignorada) */
 } button_t;
 
 static button_t s_btn_enc = { .pin = PIN_ENC_SW };
@@ -116,7 +118,21 @@ static bool button_pressed(button_t *b, int64_t now)
     }
     if (raw != b->stable && (now - b->changed_us) >= DEBOUNCE_MS * 1000) {
         b->stable = raw;
+        if (raw) {
+            b->pressed_us = now;
+            b->hold_done = false;
+        }
         return raw;
+    }
+    return false;
+}
+
+/* Retorna true uma vez, quando o botão completa `ms` pressionado. Chamar após button_pressed() */
+static bool button_held(button_t *b, int64_t now, int ms)
+{
+    if (b->stable && !b->hold_done && (now - b->pressed_us) >= (int64_t)ms * 1000) {
+        b->hold_done = true;
+        return true;
     }
     return false;
 }
@@ -212,6 +228,8 @@ static void run_start(void)
     s_run_start_us = esp_timer_get_time();
     s_run_sel = ITEM_FREQ;
     s_edit_backup = s_cfg;
+    /* A mesma pressão que iniciou não conta para parar, mesmo se o botão continuar apertado */
+    s_btn_start.hold_done = true;
     s_state = UI_RUN;
 }
 
@@ -323,7 +341,7 @@ static void render(void)
         snprintf(s_screen[1], LCD_COLS + 1, "%c%luHz %c%u%%", s_run_sel == ITEM_FREQ ? '>' : ' ',
                  (unsigned long)s_cfg.freq, s_run_sel == ITEM_DUTY ? '>' : ' ', s_cfg.duty);
         if (LCD_ROWS >= 4) {
-            snprintf(s_screen[3], LCD_COLS + 1, "START = parar");
+            snprintf(s_screen[3], LCD_COLS + 1, "Segure START: parar");
         }
     } else if (s_state == UI_RUN) {
         int64_t elapsed = esp_timer_get_time() - s_run_start_us;
@@ -343,7 +361,7 @@ static void render(void)
                      (unsigned long long)s_run_periods);
         }
         if (LCD_ROWS >= 4) {
-            snprintf(s_screen[3], LCD_COLS + 1, "START = parar");
+            snprintf(s_screen[3], LCD_COLS + 1, "Segure START: parar");
         }
     } else if (s_state == UI_MSG) {
         copy_line(s_screen[0], s_msg[0]);
@@ -372,6 +390,7 @@ static void ui_task(void *arg)
         int steps = encoder_read_detents();
         bool enc_click = button_pressed(&s_btn_enc, now);
         bool start_click = button_pressed(&s_btn_start, now);
+        bool start_hold = button_held(&s_btn_start, now, STOP_HOLD_MS);
 
         switch (s_state) {
         case UI_NAV:
@@ -412,7 +431,8 @@ static void ui_task(void *arg)
                     s_run_sel = s_run_sel == ITEM_FREQ ? ITEM_DUTY : ITEM_FREQ;
                 }
             }
-            if (start_click) {
+            /* Toque curto é ignorado: só para segurando START */
+            if (start_hold) {
                 run_stop("Interrompido");
             } else if (!pulse_gen_running()) {
                 show_msg("Concluido!", "", 1500);
@@ -426,7 +446,7 @@ static void ui_task(void *arg)
             break;
         }
 
-        if (now - last_render >= 50000 || steps || enc_click || start_click) {
+        if (now - last_render >= 50000 || steps || enc_click || start_click || start_hold) {
             render();
             last_render = now;
         }

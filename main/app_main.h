@@ -39,6 +39,7 @@ static const char *TAG = "app";
 
 #define LOOP_MS         5
 #define DEBOUNCE_MS     30
+#define STOP_HOLD_MS    2000    /* tempo segurando START para parar a geração */
 
 /* ---------- Configurações do usuário ---------- */
 typedef enum { MODE_TIME = 0, MODE_QTY = 1, MODE_CONT = 2, MODE_COUNT } run_mode_t;
