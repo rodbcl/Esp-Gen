@@ -18,7 +18,8 @@ static void settings_load(void)
     }
     settings_t tmp;
     size_t len = sizeof(tmp);
-    if (nvs_get_blob(h, "s", &tmp, &len) == ESP_OK && len == sizeof(tmp) && tmp.version == SETTINGS_VERSION) {
+    if (nvs_get_blob(h, "s", &tmp, &len) == ESP_OK && len == sizeof(tmp) && tmp.version == SETTINGS_VERSION &&
+        tmp.mode < MODE_COUNT) {
         s_cfg = tmp;
     }
     nvs_close(h);
@@ -126,14 +127,20 @@ static int32_t clamp(int32_t v, int32_t lo, int32_t hi)
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
+/* No modo contínuo não há Tempo/Qtde */
+static int item_count(void)
+{
+    return s_cfg.mode == MODE_CONT ? ITEM_AMOUNT : ITEM_COUNT;
+}
+
 static void apply_steps(int item, int steps, int accel)
 {
     switch (item) {
-    case ITEM_MODE:
-        if (steps & 1) {
-            s_cfg.mode = s_cfg.mode == MODE_TIME ? MODE_QTY : MODE_TIME;
-        }
+    case ITEM_MODE: {
+        int m = ((int)s_cfg.mode + steps) % MODE_COUNT;
+        s_cfg.mode = m < 0 ? m + MODE_COUNT : m;
         break;
+    }
     case ITEM_FREQ:
         s_cfg.freq = clamp((int32_t)s_cfg.freq + steps * accel, 0, FREQ_MAX);
         break;
@@ -187,7 +194,12 @@ static void run_start(void)
         show_msg("Erro:", "Duty = 0%", 1500);
         return;
     }
-    uint64_t periods = s_cfg.mode == MODE_TIME ? (uint64_t)s_cfg.freq * s_cfg.time_s : s_cfg.qty;
+    uint64_t periods;
+    if (s_cfg.mode == MODE_CONT) {
+        periods = PULSE_GEN_CONTINUOUS;
+    } else {
+        periods = s_cfg.mode == MODE_TIME ? (uint64_t)s_cfg.freq * s_cfg.time_s : s_cfg.qty;
+    }
     if (periods == 0) {
         show_msg("Erro:", s_cfg.mode == MODE_TIME ? "Tempo = 0" : "Quantidade = 0", 1500);
         return;
@@ -198,7 +210,37 @@ static void run_start(void)
     }
     s_run_periods = periods;
     s_run_start_us = esp_timer_get_time();
+    s_run_sel = ITEM_FREQ;
+    s_edit_backup = s_cfg;
     s_state = UI_RUN;
+}
+
+/* Modo contínuo: ajusta freq/duty com a geração em andamento */
+static void run_adjust(int steps, int accel)
+{
+    uint32_t freq = s_cfg.freq;
+    uint16_t duty = s_cfg.duty;
+    apply_steps(s_run_sel, steps, accel);
+    /* 0 Hz ou 0% não são aceitos com a geração rodando */
+    if (s_cfg.freq == 0) {
+        s_cfg.freq = 1;
+    }
+    if (s_cfg.duty == 0) {
+        s_cfg.duty = 1;
+    }
+    if (s_cfg.freq != freq || s_cfg.duty != duty) {
+        pulse_gen_set(s_cfg.freq, s_cfg.duty);
+    }
+}
+
+/* Encerra a geração; no modo contínuo salva freq/duty se foram alterados */
+static void run_stop(const char *msg)
+{
+    pulse_gen_stop();
+    if (memcmp(&s_edit_backup, &s_cfg, sizeof(s_cfg)) != 0) {
+        settings_save();
+    }
+    show_msg(msg, "", 1500);
 }
 
 /* ---------- Tela ---------- */
@@ -229,7 +271,7 @@ static void item_text(int item, char *label, char *value, size_t n)
     switch (item) {
     case ITEM_MODE:
         snprintf(label, n, "Modo:");
-        snprintf(value, n, "%s", s_cfg.mode == MODE_TIME ? "Tempo" : "Qtde");
+        snprintf(value, n, "%s", s_cfg.mode == MODE_TIME ? "Tempo" : (s_cfg.mode == MODE_QTY ? "Qtde" : "Continuo"));
         break;
     case ITEM_FREQ:
         snprintf(label, n, "Freq:");
@@ -264,7 +306,7 @@ static void render(void)
         } else if (s_cursor >= s_top + LCD_ROWS) {
             s_top = s_cursor - LCD_ROWS + 1;
         }
-        for (int r = 0; r < LCD_ROWS && s_top + r < ITEM_COUNT; r++) {
+        for (int r = 0; r < LCD_ROWS && s_top + r < item_count(); r++) {
             int item = s_top + r;
             char label[12], value[12];
             item_text(item, label, value, sizeof(label));
@@ -273,6 +315,15 @@ static void render(void)
                 mark = s_state == UI_EDIT ? '*' : '>';
             }
             fmt_line(s_screen[r], mark, label, value);
+        }
+    } else if (s_state == UI_RUN && s_cfg.mode == MODE_CONT) {
+        int64_t secs = (esp_timer_get_time() - s_run_start_us) / 1000000;
+        snprintf(s_screen[0], LCD_COLS + 1, "CONT %02ld:%02ld:%02ld", (long)(secs / 3600), (long)(secs / 60 % 60),
+                 (long)(secs % 60));
+        snprintf(s_screen[1], LCD_COLS + 1, "%c%luHz %c%u%%", s_run_sel == ITEM_FREQ ? '>' : ' ',
+                 (unsigned long)s_cfg.freq, s_run_sel == ITEM_DUTY ? '>' : ' ', s_cfg.duty);
+        if (LCD_ROWS >= 4) {
+            snprintf(s_screen[3], LCD_COLS + 1, "START = parar");
         }
     } else if (s_state == UI_RUN) {
         int64_t elapsed = esp_timer_get_time() - s_run_start_us;
@@ -325,7 +376,7 @@ static void ui_task(void *arg)
         switch (s_state) {
         case UI_NAV:
             if (steps) {
-                s_cursor = clamp(s_cursor + steps, 0, ITEM_COUNT - 1);
+                s_cursor = clamp(s_cursor + steps, 0, item_count() - 1);
             }
             if (enc_click) {
                 s_edit_backup = s_cfg;
@@ -345,16 +396,24 @@ static void ui_task(void *arg)
                     settings_save();
                 }
                 ESP_LOGI(TAG, "modo=%s freq=%lu duty=%u tempo=%lus qtde=%lu",
-                         s_cfg.mode == MODE_TIME ? "tempo" : "qtde", (unsigned long)s_cfg.freq,
+                         s_cfg.mode == MODE_TIME ? "tempo" : (s_cfg.mode == MODE_QTY ? "qtde" : "continuo"),
+                         (unsigned long)s_cfg.freq,
                          s_cfg.duty, (unsigned long)s_cfg.time_s, (unsigned long)s_cfg.qty);
                 s_state = UI_NAV;
             }
             break;
 
         case UI_RUN:
+            if (s_cfg.mode == MODE_CONT) {
+                if (steps) {
+                    run_adjust(steps, encoder_accel(steps, now));
+                }
+                if (enc_click) {
+                    s_run_sel = s_run_sel == ITEM_FREQ ? ITEM_DUTY : ITEM_FREQ;
+                }
+            }
             if (start_click) {
-                pulse_gen_stop();
-                show_msg("Interrompido", "", 1500);
+                run_stop("Interrompido");
             } else if (!pulse_gen_running()) {
                 show_msg("Concluido!", "", 1500);
             }
