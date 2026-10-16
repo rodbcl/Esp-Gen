@@ -4,6 +4,8 @@ Gerador de pulsos para bancada, feito com ESP32. A frequência e o duty cycle s�
 
 Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por software. Por isso o sinal tem timing exato, e o número de períodos gerados é exatamente o que foi pedido, mesmo em frequências altas.
 
+
+
 ## Recursos
 
 - **Frequência** de 1 Hz a 10 kHz
@@ -19,33 +21,14 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 - **Botão START/STOP**: toque para iniciar; **segure por 2 s** para interromper a qualquer momento, em qualquer modo (toques curtos durante a geração são ignorados). A tela mostra a contagem regressiva ou o progresso
 - **Saída segura no boot**: o pino de pulso é configurado como desligado antes de qualquer outra inicialização
 
-## Hardware
+### Esquema elétrico
 
-| Componente | Pino ESP32 |
-|---|---|
-| LCD 16x2 I2C (PCF8574), via level shifter | SDA = GPIO21, SCL = GPIO22 |
-| Encoder KY-040 | CLK = GPIO32, DT = GPIO33, SW = GPIO25 |
-| Botão START/STOP (ativo em 0) | GPIO26 |
-| Saída de pulsos | GPIO27 |
+O esquema elétrico completo não está publicado neste repositório. Para obtê-lo, entre em contato pelo e-mail [rodrigob1706@icloud.com](mailto:rodrigob1706@icloud.com).
 
 ### Alimentação
 
 A placa é alimentada pelos 24 V através de um buck **LM2596 ajustado em 5 V**, ligado no pino 5V da DevKitC (nunca junto com a USB). Ponha um **capacitor eletrolítico de 1000 µF** entre 5V e GND, perto do ESP32: sem ele, os picos de corrente do Wi-Fi (calibração do rádio ao entrar na Automação) derrubam a tensão e a placa reinicia por brownout. Ao ligar, se o último reset não foi normal, o LCD mostra o motivo (por exemplo `Reset: brownout`).
 
-### Estágio de saída
-
-```
-GPIO27 ──► Q1 (BC547) ──► push-pull Q2/Q3 ──► PULSO (24 V)
-```
-
-O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmware compensa isso com o `invert_out` do RMT (`PULSE_INVERTED` em [board.h](main/board.h)).
-
-## Uso
-
-```
- >Modo:     Tempo        RUN 1000Hz 50%
-  Freq:    1000Hz        Resta 00:07
-```
 
 | Ação | Navegação (`>`) | Edição (`*`) | Rodando | Rodando (Contínuo) |
 |---|---|---|---|---|
