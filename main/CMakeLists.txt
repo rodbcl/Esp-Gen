@@ -1,2 +1,10 @@
-idf_component_register(SRCS "app_main.c" "lcd_i2c.c" "pulse_gen.c"
+idf_component_register(SRCS "app_main.c"
+                            "button.c"
+                            "encoder.c"
+                            "lcd_i2c.c"
+                            "pulse_gen.c"
+                            "run.c"
+                            "screen.c"
+                            "settings.c"
+                            "ui.c"
                     INCLUDE_DIRS ".")

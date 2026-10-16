@@ -33,7 +33,7 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 GPIO27 ──► Q1 (BC547) ──► push-pull Q2/Q3 ──► PULSO (24 V)
 ```
 
-O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmware compensa isso com o `invert_out` do RMT (`PULSE_INVERTED` em [app_main.h](main/app_main.h)).
+O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmware compensa isso com o `invert_out` do RMT (`PULSE_INVERTED` em [board.h](main/board.h)).
 
 ## Uso
 
@@ -71,24 +71,31 @@ idf.py -p /dev/ttyUSB0 flash monitor
 
 ## Ajustes
 
-Os principais parâmetros ficam em [main/app_main.h](main/app_main.h):
-
-| Define | Padrão | Descrição |
-|---|---|---|
-| `LCD_COLS` / `LCD_ROWS` | 16 / 2 | Use 20 / 4 para display 20x4 |
-| `ENC_COUNTS_PER_DETENT` | 2 | Transições por clique (2 ou 4, depende do encoder) |
-| `ENC_REVERSE` | `false` | Inverte o sentido do encoder |
-| `PULSE_INVERTED` | `true` | Saída invertida pelo estágio com transistor |
-| `FREQ_MAX`, `TIME_MAX_S`, `QTY_MAX` | 10 kHz, 3600 s, 10000 | Limites dos valores |
-| `STOP_HOLD_MS` | 2000 | Tempo segurando START para interromper |
+| Define | Arquivo | Padrão | Descrição |
+|---|---|---|---|
+| Pinos `PIN_*` | [board.h](main/board.h) | — | Ligações do hardware |
+| `LCD_COLS` / `LCD_ROWS` | [board.h](main/board.h) | 16 / 2 | Use 20 / 4 para display 20x4 |
+| `ENC_COUNTS_PER_DETENT` | [board.h](main/board.h) | 2 | Transições por clique (2 ou 4, depende do encoder) |
+| `ENC_REVERSE` | [board.h](main/board.h) | `false` | Inverte o sentido do encoder |
+| `PULSE_INVERTED` | [board.h](main/board.h) | `true` | Saída invertida pelo estágio com transistor |
+| `FREQ_MAX`, `TIME_MAX_S`, `QTY_MAX` | [settings.h](main/settings.h) | 10 kHz, 3600 s, 10000 | Limites dos valores |
+| `STOP_HOLD_MS` | [ui.c](main/ui.c) | 2000 | Tempo segurando START para interromper |
 
 ## Estrutura
 
 ```
 main/
-├── app_main.c / .h   # UI, encoder (PCNT), botões, NVS e loop principal
+├── app_main.c        # Inicialização: saída segura, NVS, configurações e UI
+├── board.h           # Pinos e parâmetros do hardware
+├── ui.c / .h         # Máquina de estados do menu, telas e loop da interface
+├── run.c / .h        # Execução da geração conforme o modo (Tempo, Qtde, Contínuo)
+├── settings.c / .h   # Configurações do usuário, limites e persistência na NVS
+├── screen.c / .h     # Buffer da tela: envia ao LCD só as linhas que mudaram
+├── encoder.c / .h    # Encoder rotativo via PCNT, com aceleração
+├── button.c / .h     # Botões com debounce e pressão longa
 ├── pulse_gen.c / .h  # Gerador de pulsos via RMT com encoder em streaming
-└── lcd_i2c.c / .h    # Driver HD44780 + PCF8574 (modo 4 bits)
+├── lcd_i2c.c / .h    # Driver HD44780 + PCF8574 (modo 4 bits)
+└── util.h            # Funções auxiliares (clamp)
 ```
 
 ### Como funciona o gerador
