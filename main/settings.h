@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-/* Configurações do usuário, persistidas na NVS. Requer nvs_flash_init() antes de settings_load(). */
+// Configurações do usuário, persistidas na NVS. Requer nvs_flash_init() antes de settings_load().
 
 #define FREQ_MAX        10000
 #define DUTY_MAX        100
@@ -20,13 +20,13 @@ typedef struct {
     uint32_t qty;
 } settings_t;
 
-/* Campos editáveis pelo menu, na ordem em que aparecem */
+//Campos editáveis pelo menu, na ordem em que aparecem
 typedef enum { FIELD_MODE, FIELD_FREQ, FIELD_DUTY, FIELD_AMOUNT, FIELD_COUNT } settings_field_t;
 
 void settings_load(void);
 void settings_save(void);
 settings_t *settings_get(void);
-/* Número de campos visíveis no modo atual (no Contínuo não há Tempo/Qtde) */
+// Número de campos visíveis no modo atual (no Contínuo não há Tempo/Qtde)
 int settings_field_count(void);
-/* Altera um campo em `steps` cliques do encoder; `accel` = 1, 10 ou 100 */
+// Altera um campo em `steps` cliques do encoder; `accel` = 1, 10 ou 100
 void settings_adjust(settings_field_t field, int steps, int accel);

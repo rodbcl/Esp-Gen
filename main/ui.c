@@ -21,7 +21,7 @@ static const char *TAG = "ui";
 
 #define LOOP_MS         5
 #define MSG_MS          1500
-#define STOP_HOLD_MS    2000    /* tempo segurando START para parar a geração */
+#define STOP_HOLD_MS    2000    // tempo segurando START para parar a geração
 
 typedef enum { UI_NAV, UI_EDIT, UI_RUN, UI_MSG } ui_state_t;
 
@@ -30,7 +30,7 @@ static settings_t *s_cfg;
 static int s_cursor;
 static int s_top;
 static settings_t s_edit_backup;
-static settings_field_t s_run_sel;  /* modo contínuo: campo ajustado pelo encoder (FIELD_FREQ ou FIELD_DUTY) */
+static settings_field_t s_run_sel;  // modo contínuo: campo ajustado pelo encoder (FIELD_FREQ ou FIELD_DUTY)
 static int64_t s_msg_until_us;
 static char s_msg[2][21];
 static button_t s_btn_enc;
@@ -52,12 +52,12 @@ static void start(void)
         return;
     }
     s_run_sel = FIELD_FREQ;
-    /* A mesma pressão que iniciou não conta para parar, mesmo se o botão continuar apertado */
+    //A mesma pressão que iniciou não conta para parar, mesmo se o botão continuar apertado
     button_ignore_hold(&s_btn_start);
     s_state = UI_RUN;
 }
 
-/* ---------- Tela ---------- */
+//Tela
 static void item_text(int item, char *label, char *value, size_t n)
 {
     switch (item) {
@@ -136,7 +136,7 @@ static void render(void)
     screen_flush();
 }
 
-/* ---------- Loop principal ---------- */
+//Loop principal
 static void ui_task(void *arg)
 {
     int64_t last_render = 0;
@@ -186,7 +186,7 @@ static void ui_task(void *arg)
                     s_run_sel = s_run_sel == FIELD_FREQ ? FIELD_DUTY : FIELD_FREQ;
                 }
             }
-            /* Toque curto é ignorado: só para segurando START */
+            //Toque curto é ignorado: só para segurando START
             if (start_hold) {
                 run_stop();
                 show_msg("Interrompido", "", MSG_MS);

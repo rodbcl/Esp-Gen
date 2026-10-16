@@ -66,7 +66,7 @@ void settings_adjust(settings_field_t field, int steps, int accel)
         break;
     case FIELD_AMOUNT:
         if (s_cfg.mode == MODE_TIME) {
-            /* 1 s, 10 s ou 1 min por clique conforme a velocidade */
+            // 1 s, 10 s ou 1 min por clique conforme a velocidade
             int step = accel >= 100 ? 60 : accel;
             s_cfg.time_s = clamp_i32((int32_t)s_cfg.time_s + steps * step, 0, TIME_MAX_S);
         } else {
