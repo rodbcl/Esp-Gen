@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -280,6 +281,20 @@ static void ui_task(void *arg)
     }
 }
 
+// Texto curto do motivo do último reset, ou NULL se foi um reset normal
+static const char *reset_text(esp_reset_reason_t r)
+{
+    switch (r) {
+    case ESP_RST_BROWNOUT:  return "Reset: brownout";
+    case ESP_RST_PANIC:     return "Reset: panic";
+    case ESP_RST_INT_WDT:   return "Reset: int WDT";
+    case ESP_RST_TASK_WDT:  return "Reset: task WDT";
+    case ESP_RST_WDT:       return "Reset: WDT";
+    case ESP_RST_SW:        return "Reset: software";
+    default:                return NULL;
+    }
+}
+
 void ui_start(void)
 {
     s_cfg = settings_get();
@@ -291,7 +306,14 @@ void ui_start(void)
     if (lcd_init(PIN_SDA, PIN_SCL, LCD_COLS, LCD_ROWS) == ESP_OK) {
         lcd_set_cursor(0, 0);
         lcd_print("Gerador Pulsos");
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // Se o último reset não foi normal, mostra o motivo por mais tempo
+        const char *why = reset_text(esp_reset_reason());
+        if (why) {
+            ESP_LOGW(TAG, "reiniciou por: %s", why);
+            lcd_set_cursor(0, 1);
+            lcd_print(why);
+        }
+        vTaskDelay(pdMS_TO_TICKS(why ? 4000 : 1000));
         lcd_clear();
     }
 
@@ -300,5 +322,6 @@ void ui_start(void)
         enter_auto();
     }
 
-    xTaskCreate(ui_task, "ui", 4096, NULL, 5, NULL);
+    // Pilha maior: a entrada na Automação liga o Wi-Fi (e calibra o rádio) a partir desta task
+    xTaskCreate(ui_task, "ui", 8192, NULL, 5, NULL);
 }

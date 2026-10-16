@@ -28,6 +28,10 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 | Botão START/STOP (ativo em 0) | GPIO26 |
 | Saída de pulsos | GPIO27 |
 
+### Alimentação
+
+A placa é alimentada pelos 24 V através de um buck **LM2596 ajustado em 5 V**, ligado no pino 5V da DevKitC (nunca junto com a USB). Ponha um **capacitor eletrolítico de 1000 µF** entre 5V e GND, perto do ESP32: sem ele, os picos de corrente do Wi-Fi (calibração do rádio ao entrar na Automação) derrubam a tensão e a placa reinicia por brownout. Ao ligar, se o último reset não foi normal, o LCD mostra o motivo (por exemplo `Reset: brownout`).
+
 ### Estágio de saída
 
 ```
