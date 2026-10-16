@@ -4,6 +4,7 @@
  */
 #include "nvs_flash.h"
 
+#include "automation.h"
 #include "board.h"
 #include "pulse_gen.h"
 #include "settings.h"
@@ -20,6 +21,7 @@ void app_main(void)
         nvs_flash_init();
     }
     settings_load();
+    automation_init();
 
     ui_start();
 }

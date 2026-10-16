@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "automation.h"
 #include "board.h"
 #include "button.h"
 #include "encoder.h"
@@ -16,14 +17,18 @@
 #include "screen.h"
 #include "settings.h"
 #include "util.h"
+#include "wifi_ap.h"
 
 static const char *TAG = "ui";
 
 #define LOOP_MS         5
 #define MSG_MS          1500
 #define STOP_HOLD_MS    2000    // tempo segurando START para parar a geração
+#define AUTO_ROTATE_MS  3000    // modo Automação: troca da informação na 2ª linha
 
-typedef enum { UI_NAV, UI_EDIT, UI_RUN, UI_MSG } ui_state_t;
+typedef enum { UI_NAV, UI_EDIT, UI_RUN, UI_MSG, UI_AUTO } ui_state_t;
+
+static const char *const MODE_NAMES[MODE_COUNT] = { "Tempo", "Qtde", "Continuo", "Automacao" };
 
 static ui_state_t s_state = UI_NAV;
 static settings_t *s_cfg;
@@ -57,13 +62,19 @@ static void start(void)
     s_state = UI_RUN;
 }
 
+static void enter_auto(void)
+{
+    automation_enter();
+    s_state = UI_AUTO;
+}
+
 //Tela
 static void item_text(int item, char *label, char *value, size_t n)
 {
     switch (item) {
     case FIELD_MODE:
         snprintf(label, n, "Modo:");
-        snprintf(value, n, "%s", s_cfg->mode == MODE_TIME ? "Tempo" : (s_cfg->mode == MODE_QTY ? "Qtde" : "Continuo"));
+        snprintf(value, n, "%s", MODE_NAMES[s_cfg->mode]);
         break;
     case FIELD_FREQ:
         snprintf(label, n, "Freq:");
@@ -83,6 +94,51 @@ static void item_text(int item, char *label, char *value, size_t n)
         }
         break;
     }
+}
+
+/*
+ * Automação sem teste: como conectar (nome do AP, senha e IP se alternam).
+ * Com teste: pulsos válidos enviados e, alternando, ritmo/parada, tempo de teste e AP.
+ */
+static void render_auto(void)
+{
+    automation_status_t st = automation_status();
+    int slot = (int)(esp_timer_get_time() / (AUTO_ROTATE_MS * 1000LL)) % 3;
+
+    if (!st.running) {
+        screen_printf(0, "Conecte-se ao AP");
+        if (slot == 0) {
+            screen_printf(1, "%s", wifi_ap_ssid());
+        } else if (slot == 1) {
+            screen_printf(1, "Senha %s", WIFI_AP_PASS);
+        } else {
+            screen_printf(1, "IP %s", WIFI_AP_IP);
+        }
+    } else {
+        screen_printf(0, "Pulsos%10llu", (unsigned long long)st.tally.valid);
+        if (slot == 0 && st.gen.stopped) {
+            unsigned long left = st.gen.stop_left_s;
+            if (left >= 3600) {
+                screen_printf(1, "Maq parada %luh%02lu", left / 3600, left / 60 % 60);
+            } else {
+                screen_printf(1, "Maq parada %02lu:%02lu", left / 60, left % 60);
+            }
+        } else if (slot == 0) {
+            screen_printf(1, "Ritmo %lu,%02lu Hz", (unsigned long)(st.gen.rate_mhz / 1000),
+                          (unsigned long)(st.gen.rate_mhz % 1000 / 10));
+        } else if (slot == 1) {
+            unsigned long e = st.elapsed_s;
+            if (e >= 86400) {
+                screen_printf(1, "Tempo %lud%02lu:%02lu:%02lu", e / 86400, e / 3600 % 24, e / 60 % 60, e % 60);
+            } else {
+                screen_printf(1, "Tempo %02lu:%02lu:%02lu", e / 3600, e / 60 % 60, e % 60);
+            }
+        } else {
+            screen_printf(1, "AP %s", wifi_ap_ssid());
+        }
+    }
+    screen_printf(2, "%s", wifi_ap_ssid());
+    screen_printf(3, "Segure START:sair");
 }
 
 static void render(void)
@@ -131,6 +187,8 @@ static void render(void)
     } else if (s_state == UI_MSG) {
         screen_printf(0, "%s", s_msg[0]);
         screen_printf(1, "%s", s_msg[1]);
+    } else if (s_state == UI_AUTO) {
+        render_auto();
     }
 
     screen_flush();
@@ -165,12 +223,15 @@ static void ui_task(void *arg)
             if (steps) {
                 settings_adjust(s_cursor, steps, encoder_accel(steps, now));
             }
-            if (enc_click) {
+            if (enc_click && s_cfg->mode == MODE_AUTO) {
+                // A Automação não é salva: ao sair dela o menu volta no modo anterior
+                s_cfg->mode = s_edit_backup.mode;
+                enter_auto();
+            } else if (enc_click) {
                 if (memcmp(&s_edit_backup, s_cfg, sizeof(*s_cfg)) != 0) {
                     settings_save();
                 }
-                ESP_LOGI(TAG, "modo=%s freq=%lu duty=%u tempo=%lus qtde=%lu",
-                         s_cfg->mode == MODE_TIME ? "tempo" : (s_cfg->mode == MODE_QTY ? "qtde" : "continuo"),
+                ESP_LOGI(TAG, "modo=%s freq=%lu duty=%u tempo=%lus qtde=%lu", MODE_NAMES[s_cfg->mode],
                          (unsigned long)s_cfg->freq,
                          s_cfg->duty, (unsigned long)s_cfg->time_s, (unsigned long)s_cfg->qty);
                 s_state = UI_NAV;
@@ -200,6 +261,15 @@ static void ui_task(void *arg)
                 s_state = UI_NAV;
             }
             break;
+
+        case UI_AUTO:
+            // Segurar START sai do modo, interrompendo o teste se houver
+            if (start_hold) {
+                bool was_running = automation_status().running;
+                automation_exit();
+                show_msg(was_running ? "Teste parado" : "Automacao", "Wi-Fi desligado", MSG_MS);
+            }
+            break;
         }
 
         if (now - last_render >= 50000 || steps || enc_click || start_click || start_hold) {
@@ -223,6 +293,11 @@ void ui_start(void)
         lcd_print("Gerador Pulsos");
         vTaskDelay(pdMS_TO_TICKS(1000));
         lcd_clear();
+    }
+
+    // Faltou energia com um teste rodando: volta direto para a Automação e retoma
+    if (automation_resume_pending()) {
+        enter_auto();
     }
 
     xTaskCreate(ui_task, "ui", 4096, NULL, 5, NULL);

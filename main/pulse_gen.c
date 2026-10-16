@@ -1,6 +1,7 @@
 #include "pulse_gen.h"
 
 #include "driver/rmt_tx.h"
+#include "esp_attr.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -52,7 +53,7 @@ static struct {
 } s_upd;
 
 /* ---------- Fonte fixa ---------- */
-static void set_freq(fixed_t *f, uint32_t freq_hz, uint32_t duty_pct)
+static void IRAM_ATTR set_freq(fixed_t *f, uint32_t freq_hz, uint32_t duty_pct)
 {
     f->freq = freq_hz;
     f->duty = duty_pct;
@@ -61,7 +62,7 @@ static void set_freq(fixed_t *f, uint32_t freq_hz, uint32_t duty_pct)
     f->err = 0;
 }
 
-static void apply_update(fixed_t *f)
+static void IRAM_ATTR apply_update(fixed_t *f)
 {
     portENTER_CRITICAL_SAFE(&s_upd_lock);
     if (s_upd.pending) {
@@ -72,7 +73,7 @@ static void apply_update(fixed_t *f)
 }
 
 // Cada período vira dois trechos: ativo (ton) e inativo (toff)
-static bool fixed_next(void *ctx, uint32_t *level, uint32_t *ticks)
+static bool IRAM_ATTR fixed_next(void *ctx, uint32_t *level, uint32_t *ticks)
 {
     fixed_t *f = ctx;
     if (f->off_pending) {
@@ -105,7 +106,7 @@ static bool fixed_next(void *ctx, uint32_t *level, uint32_t *ticks)
 
 /* ---------- Motor ---------- */
 // Fornece o próximo meio-símbolo (nível, duração). Retorna false quando acabou.
-static bool next_half(engine_t *e, uint32_t *level, uint32_t *dur)
+static bool IRAM_ATTR next_half(engine_t *e, uint32_t *level, uint32_t *dur)
 {
     while (e->seg_left == 0) {
         if (e->abort || !e->src(e->ctx, &e->seg_level, &e->seg_left)) {
@@ -123,7 +124,7 @@ static bool next_half(engine_t *e, uint32_t *level, uint32_t *dur)
     return true;
 }
 
-static size_t encode_cb(const void *data, size_t data_size, size_t symbols_written, size_t symbols_free,
+static size_t IRAM_ATTR encode_cb(const void *data, size_t data_size, size_t symbols_written, size_t symbols_free,
                         rmt_symbol_word_t *symbols, bool *done, void *arg)
 {
     engine_t *e = arg;
@@ -151,7 +152,7 @@ static size_t encode_cb(const void *data, size_t data_size, size_t symbols_writt
     return n;
 }
 
-static bool on_done(rmt_channel_handle_t chan, const rmt_tx_done_event_data_t *ev, void *ctx)
+static bool IRAM_ATTR on_done(rmt_channel_handle_t chan, const rmt_tx_done_event_data_t *ev, void *ctx)
 {
     s_running = false;
     return false;

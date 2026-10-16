@@ -1,6 +1,7 @@
 #include "tally.h"
 
 #include "freertos/FreeRTOS.h"
+#include "esp_attr.h"
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static tally_t s_tally;
@@ -20,21 +21,21 @@ tally_t tally_get(void)
     return t;
 }
 
-void tally_add_valid(void)
+void IRAM_ATTR tally_add_valid(void)
 {
     portENTER_CRITICAL_SAFE(&s_lock);
     s_tally.valid++;
     portEXIT_CRITICAL_SAFE(&s_lock);
 }
 
-void tally_add_noise(void)
+void IRAM_ATTR tally_add_noise(void)
 {
     portENTER_CRITICAL_SAFE(&s_lock);
     s_tally.noise++;
     portEXIT_CRITICAL_SAFE(&s_lock);
 }
 
-void tally_add_stop(void)
+void IRAM_ATTR tally_add_stop(void)
 {
     portENTER_CRITICAL_SAFE(&s_lock);
     s_tally.stops++;

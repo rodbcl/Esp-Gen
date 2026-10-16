@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "freertos/FreeRTOS.h"
+#include "esp_attr.h"
 #include "pulse_gen.h"
 #include "tally.h"
 
@@ -52,7 +53,7 @@ static struct {
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 
 /* ---------- Sorteios (só inteiros: roda em ISR) ---------- */
-static uint32_t rnd(void)
+static uint32_t IRAM_ATTR rnd(void)
 {
     uint32_t x = s.rng;
     x ^= x << 13;
@@ -62,7 +63,7 @@ static uint32_t rnd(void)
 }
 
 // Inteiro uniforme em [lo, hi]
-static uint32_t rnd_range(uint32_t lo, uint32_t hi)
+static uint32_t IRAM_ATTR rnd_range(uint32_t lo, uint32_t hi)
 {
     if (hi <= lo) {
         return lo;
@@ -70,19 +71,19 @@ static uint32_t rnd_range(uint32_t lo, uint32_t hi)
     return lo + (uint32_t)(((uint64_t)rnd() * ((uint64_t)hi - lo + 1)) >> 32);
 }
 
-static uint64_t period_ticks(uint32_t mhz)
+static uint64_t IRAM_ATTR period_ticks(uint32_t mhz)
 {
     return TPS * 1000 / mhz;
 }
 
-static uint64_t max_u64(uint64_t a, uint64_t b)
+static uint64_t IRAM_ATTR max_u64(uint64_t a, uint64_t b)
 {
     return a > b ? a : b;
 }
 
 /* ---------- Produção e paradas ---------- */
 // Ritmo de um pulso que começa em `at`
-static uint32_t draw_rate(uint64_t at)
+static uint32_t IRAM_ATTR draw_rate(uint64_t at)
 {
     const auto_profile_t *p = &s.p;
     if (p->regime_s == 0) {
@@ -102,7 +103,7 @@ static uint32_t draw_rate(uint64_t at)
     return (uint32_t)f;
 }
 
-static void schedule_stop(uint64_t from)
+static void IRAM_ATTR schedule_stop(uint64_t from)
 {
     const auto_profile_t *p = &s.p;
     s.stop_at = from + rnd_range(p->stop_every_min_s, p->stop_every_max_s) * TPS;
@@ -110,7 +111,7 @@ static void schedule_stop(uint64_t from)
 }
 
 // Agenda o pulso seguinte ao que começou em `start`, respeitando as paradas
-static void after_pulse(uint64_t start)
+static void IRAM_ATTR after_pulse(uint64_t start)
 {
     s.rate_mhz = draw_rate(start);
     uint64_t next = start + period_ticks(s.rate_mhz);
@@ -125,12 +126,12 @@ static void after_pulse(uint64_t start)
 }
 
 /* ---------- Escolha do próximo evento ---------- */
-static uint64_t noise_every_ticks(void)
+static uint64_t IRAM_ATTR noise_every_ticks(void)
 {
     return rnd_range(s.p.noise_every_min_ms, s.p.noise_every_max_ms) * (TPS / 1000);
 }
 
-static void commit_event(void)
+static void IRAM_ATTR commit_event(void)
 {
     const auto_profile_t *p = &s.p;
     uint64_t pulse_at = s.pulse_at;
@@ -249,7 +250,7 @@ void auto_gen_begin(const auto_profile_t *p, uint32_t seed)
     portEXIT_CRITICAL_SAFE(&s_lock);
 }
 
-bool auto_gen_next(void *ctx, uint32_t *level, uint32_t *ticks)
+bool IRAM_ATTR auto_gen_next(void *ctx, uint32_t *level, uint32_t *ticks)
 {
     portENTER_CRITICAL_SAFE(&s_lock);
     if (s.ev == EV_NONE) {
