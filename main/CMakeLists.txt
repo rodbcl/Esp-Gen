@@ -1,4 +1,5 @@
 idf_component_register(SRCS "app_main.c"
+                            "auto_gen.c"
                             "button.c"
                             "encoder.c"
                             "lcd_i2c.c"
@@ -6,5 +7,6 @@ idf_component_register(SRCS "app_main.c"
                             "run.c"
                             "screen.c"
                             "settings.c"
+                            "tally.c"
                             "ui.c"
                     INCLUDE_DIRS ".")
