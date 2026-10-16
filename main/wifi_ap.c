@@ -66,6 +66,7 @@ esp_err_t wifi_ap_start(void)
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_AP), TAG, "mode");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_AP, &wc), TAG, "config");
     ESP_RETURN_ON_ERROR(esp_wifi_start(), TAG, "start");
+    esp_wifi_set_max_tx_power(WIFI_AP_TX_DBM * 4);  // unidade de 0,25 dBm
     s_on = true;
     ESP_LOGI(TAG, "AP %s ligado (%s)", ssid, WIFI_AP_IP);
     return ESP_OK;
