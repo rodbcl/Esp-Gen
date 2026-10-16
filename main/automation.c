@@ -10,9 +10,11 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "history.h"
 #include "pulse_gen.h"
 #include "state_log.h"
 #include "wallclock.h"
+#include "web_server.h"
 #include "wifi_ap.h"
 
 static const char *TAG = "auto";
@@ -135,6 +137,7 @@ static void resume_test(void)
     tally_t t = { .valid = r->valid, .noise = r->noise, .stops = r->stops };
     tally_reset(&t);
     s_elapsed_base = r->elapsed_s;
+    history_power_resumed(&t, r->elapsed_s, r->time_ok);
     begin_generation();
     s_resume = false;
     ESP_LOGW(TAG, "teste retomado após queda de energia: %llu pulsos válidos", (unsigned long long)r->valid);
@@ -150,15 +153,21 @@ static void stop_generation(void)
     s_elapsed_base = elapsed_s();
     s_running = false;
     save_state();
+    tally_t t = tally_get();
+    history_test_stopped(&t, s_elapsed_base);
 }
 
-// Grava o estado a cada segundo enquanto o teste roda
+// A cada segundo, com o teste rodando: grava o estado e alimenta o histórico
 static void save_task(void *arg)
 {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(SAVE_PERIOD_MS));
         xSemaphoreTake(s_mtx, portMAX_DELAY);
-        if (s_running) {
+        bool running = s_running;
+        tally_t t = tally_get();
+        uint32_t elapsed = elapsed_s();
+        bool stopped = running && auto_gen_status().stopped;
+        if (running) {
             state_rec_t rec = current_rec();
             bool changed = rec.valid != s_saved.valid || rec.noise != s_saved.noise || rec.stops != s_saved.stops;
             if (changed || esp_timer_get_time() - s_saved_us >= SAVE_IDLE_S * 1000000LL) {
@@ -166,6 +175,10 @@ static void save_task(void *arg)
             }
         }
         xSemaphoreGive(s_mtx);
+        // Fora da trava: a leitura do histórico pelo servidor pode demorar
+        if (running) {
+            history_tick(&t, elapsed, stopped);
+        }
     }
 }
 
@@ -174,6 +187,7 @@ void automation_init(void)
 {
     s_mtx = xSemaphoreCreateMutex();
     load_profile();
+    history_init();
     if (state_log_init() == ESP_OK && state_log_last(&s_resume_rec) && s_resume_rec.running) {
         s_resume = true;
     }
@@ -192,6 +206,7 @@ void automation_enter(void)
         if (wifi_ap_start() != ESP_OK) {
             ESP_LOGE(TAG, "falha ao ligar o AP");
         }
+        web_server_start();
         s_active = true;
         if (s_resume) {
             resume_test();
@@ -204,6 +219,7 @@ void automation_exit(void)
 {
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     stop_generation();
+    web_server_stop();
     wifi_ap_stop();
     s_active = false;
     xSemaphoreGive(s_mtx);
@@ -222,6 +238,7 @@ const char *automation_start(void)
         s_elapsed_base = 0;
         s_started_at = wallclock_now();
         save_started_at();
+        history_test_started();
         begin_generation();
         if (!s_running) {
             err = "Falha ao iniciar a geração.";
@@ -266,11 +283,37 @@ const char *automation_set_profile(const auto_profile_t *p)
     return err;
 }
 
-void automation_set_time(uint32_t epoch)
+void automation_set_time(uint32_t epoch, int32_t tz_min)
 {
     xSemaphoreTake(s_mtx, portMAX_DELAY);
+    wallclock_set_tz(tz_min);
+    // Hora estimada após queda de energia: a diferença corrige o histórico
+    uint32_t estimated = wallclock_now();
+    bool fix = !wallclock_confirmed() && estimated != 0;
     wallclock_set(epoch, true);
+    if (fix) {
+        history_time_fixed((int32_t)(epoch - estimated));
+    }
+    // Teste iniciado sem hora conhecida: deduz o início pelo tempo de teste
+    if (s_started_at == 0 && (s_running || s_elapsed_base)) {
+        s_started_at = epoch - elapsed_s();
+        save_started_at();
+    }
     xSemaphoreGive(s_mtx);
+}
+
+const char *automation_check(uint64_t counter_value, uint64_t *expected)
+{
+    const char *err = NULL;
+    xSemaphoreTake(s_mtx, portMAX_DELAY);
+    if (!s_running && s_elapsed_base == 0) {
+        err = "Nenhum teste em andamento para conferir.";
+    } else {
+        *expected = tally_get().valid;
+        history_check(counter_value, *expected);
+    }
+    xSemaphoreGive(s_mtx);
+    return err;
 }
 
 automation_status_t automation_status(void)

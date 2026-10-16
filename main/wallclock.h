@@ -14,3 +14,8 @@ void wallclock_set(uint32_t epoch, bool confirmed);
 // Hora atual, ou 0 se nunca foi definida
 uint32_t wallclock_now(void);
 bool wallclock_confirmed(void);
+
+// Fuso do navegador, em minutos em relação ao UTC (Brasília = -180)
+void wallclock_set_tz(int32_t offset_min);
+// Escreve `epoch` em hora local como "dd/mm/aaaa hh:mm"
+void wallclock_format(uint32_t epoch, char *buf, int len);

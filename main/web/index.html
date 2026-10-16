@@ -46,7 +46,7 @@
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
-  background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.45;
+  margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 15px; line-height: 1.45;
   -webkit-tap-highlight-color: transparent;
 }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
@@ -421,14 +421,17 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
     </div>
 
     <div class="card">
-      <h2>Eventos</h2>
+      <div class="row">
+        <h2>Eventos</h2>
+        <a class="btn csv-link" href="/api/events.csv" style="padding:7px 12px;font-size:13px;text-decoration:none">Exportar CSV</a>
+      </div>
       <ul class="events" id="events"></ul>
     </div>
 
     <div class="card">
       <div class="row">
         <h2>Intervalos</h2>
-        <a class="btn" id="btn-csv" href="/api/history.csv" style="padding:7px 12px;font-size:13px;text-decoration:none">Exportar CSV</a>
+        <a class="btn csv-link" href="/api/history.csv" style="padding:7px 12px;font-size:13px;text-decoration:none">Exportar CSV</a>
       </div>
       <div class="tbl-wrap">
         <table>
@@ -466,6 +469,7 @@ function fmtDur(s) {
   return (d ? d + 'd ' : '') + pad(h) + ':' + pad(m) + ':' + pad(s % 60);
 }
 function fmtWhen(epoch, withDate) {
+  if (!epoch) return '–';
   const d = new Date(epoch * 1000);
   const t = pad(d.getHours()) + ':' + pad(d.getMinutes());
   return withDate ? pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + ' ' + t : t;
@@ -590,7 +594,7 @@ const demo = {
       if (stopS) stops++;
       const v = Math.round(base * (3600 - stopS)), n = Math.round(uni(this.rnd, 60, 300));
       valid += v; noise += n;
-      this.hist.push({ t: h, valid: v, noise: n, stop_s: stopS });
+      this.hist.push({ t: h, ok: 1, dur: 3600, valid: v, noise: n, stop_s: stopS });
     }
     this.valid = valid + 4 * 1800; this.noise = noise + 61; this.stops = stops;
     this.carry = 0; this.last = now; this.minStart = now;
@@ -728,7 +732,7 @@ async function poll() {
     $('#state-pill').querySelector('span').textContent = 'Sem conexão';
   }
 }
-function syncTime() { return api('time', { epoch: Math.floor(Date.now() / 1000) }).catch(() => {}); }
+function syncTime() { return api('time', { epoch: Math.floor(Date.now() / 1000), tz: -new Date().getTimezoneOffset() }).catch(() => {}); }
 
 $('#btn-start').addEventListener('click', async () => {
   try { await api('start', {}); toast('Teste iniciado'); poll(); } catch (e) { toast(e.message); }
@@ -943,7 +947,7 @@ function renderHistory() {
   let s = '';
   for (const g of [0, nice / 2, nice]) s += `<line x1="${left}" x2="${W}" y1="${y(g)}" y2="${y(g)}" stroke="var(--line)"/><text x="${left - 4}" y="${y(g) + 3}" text-anchor="end">${nf.format(g)}</text>`;
   last.forEach((r, i) => {
-    const x = left + i * bw + 1, h = y(0) - y(r.valid), stopH = (H - top - bot) * r.stop_s / 3600;
+    const x = left + i * bw + 1, h = y(0) - y(r.valid), stopH = (H - top - bot) * r.stop_s / (r.dur || 3600);
     s += `<rect x="${x.toFixed(1)}" y="${(y(0) - h).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--accent)"/>`;
     if (r.stop_s) s += `<rect x="${x.toFixed(1)}" y="${top}" width="${(bw - 2).toFixed(1)}" height="${stopH.toFixed(1)}" rx="1.5" fill="var(--idle)" opacity=".55"/>`;
     if (i % 6 === 0) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${fmtWhen(r.t)}</text>`;
@@ -951,7 +955,9 @@ function renderHistory() {
   if (!last.length) s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">O primeiro intervalo aparece depois de uma hora de teste</text>`;
   $('#chart-hour').innerHTML = s;
 
-  const names = { start: 'Teste iniciado', stop: 'Teste interrompido', power: 'Queda de energia', check: 'Conferência', resume: 'Teste retomado' };
+  const names = { start: 'Teste iniciado', stop: 'Teste interrompido', power: 'Queda de energia', check: 'Conferência' };
+  // "≈": hora estimada após queda de energia, ainda não confirmada pelo navegador
+  const when = (r, withDate) => (r.ok === 0 ? '≈ ' : '') + fmtWhen(r.t, withDate);
   $('#events').innerHTML = (history.events || []).slice().reverse().map(e => {
     let tag = '', sub = '';
     if (e.type === 'check') {
@@ -959,15 +965,17 @@ function renderHistory() {
       tag = `<span class="tag ${d === 0 ? 'ok' : 'bad'}">${d === 0 ? '✓ 0' : (d > 0 ? '+' : '') + nf.format(d)}</span>`;
       sub = `contador ${nf.format(e.value)} · enviados ${nf.format(e.expected)}`;
     }
-    if (e.type === 'power') sub = `desligado por ${fmtDur(e.off_s)}; contagem retomada`;
-    return `<li><time>${fmtWhen(e.t, true).replace(' ', '<br>')}</time><div>${names[e.type] || e.type}${sub ? `<small>${sub}</small>` : ''}</div>${tag}</li>`;
+    if (e.type === 'power') sub = (e.off_s == null ? 'duração desconhecida até a hora ser confirmada' : `desligado por ${fmtDur(e.off_s)}`) + '; contagem retomada';
+    if (e.type === 'stop' && e.valid != null) sub = `${nf.format(e.valid)} pulsos válidos enviados`;
+    return `<li><time>${when(e, true).replace(' ', '<br>')}</time><div>${names[e.type] || e.type}${sub ? `<small>${sub}</small>` : ''}</div>${tag}</li>`;
   }).join('') || '<li><div class="note">Nenhum evento ainda.</div></li>';
 
-  $('#intervals').innerHTML = iv.slice().reverse().map(r =>
-    `<tr><td>${fmtWhen(r.t, true)}</td><td>${nf.format(r.valid)}</td><td>${nf.format(r.noise)}</td><td>${r.stop_s ? Math.round(r.stop_s / 60) + ' min' : '–'}</td><td>${(r.valid / Math.max(1, 3600 - r.stop_s)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Hz</td></tr>`
-  ).join('');
+  $('#intervals').innerHTML = iv.slice().reverse().map(r => {
+    const active = Math.max(1, (r.dur || 3600) - r.stop_s);
+    return `<tr><td>${when(r, true)}</td><td>${nf.format(r.valid)}</td><td>${nf.format(r.noise)}</td><td>${r.stop_s ? Math.round(r.stop_s / 60) + ' min' : '–'}</td><td>${(r.valid / active).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Hz</td></tr>`;
+  }).join('');
 }
-$('#btn-csv').addEventListener('click', e => { if (DEMO) { e.preventDefault(); toast('A exportação funciona conectado ao gerador.'); } });
+for (const a of $$('.csv-link')) a.addEventListener('click', e => { if (DEMO) { e.preventDefault(); toast('A exportação funciona conectado ao gerador.'); } });
 
 /* ---------- Início ---------- */
 async function boot() {

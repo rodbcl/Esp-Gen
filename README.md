@@ -83,7 +83,12 @@ A configuração do teste (faixa de frequência, largura do pulso, paradas, ruí
 
 - **Contabilidade**: o gerador soma separadamente os **pulsos válidos** (o que o contador deve mostrar) e os **ruídos** injetados (que o contador não deve contar)
 - **Segurar START por 2 s** interrompe o teste, desliga o Wi-Fi e volta ao menu no modo anterior
-- **Queda de energia**: o estado é gravado a cada segundo; ao religar, o gerador volta sozinho para a Automação e retoma o teste com a contagem salva. A hora fica "não confirmada" até a página ser aberta de novo
+- **Queda de energia**: o estado é gravado a cada segundo; ao religar, o gerador volta sozinho para a Automação e retoma o teste com a contagem salva. A hora fica "não confirmada" (`≈` na página) até a página ser aberta de novo; aí o histórico é corrigido e a queda ganha a duração real
+- **Histórico**: um intervalo por hora de teste (pulsos válidos, ruídos, paradas, tempo parado, frequência média) e os eventos (início, fim, quedas de energia, conferências), guardados na flash por até ~11 meses de teste
+- **CSVs** (aba Histórico): `espgen-intervalos.csv` e `espgen-eventos.csv`, com `;` e vírgula decimal, prontos para o Excel em português, em hora local do celular
+- **Conferir contador**: digite o valor do display do contador; a diferença para os pulsos enviados fica registrada nos eventos
+
+A página é servida pelo próprio ESP ([web/index.html](main/web/index.html), comprimida no build por [web/pack.py](main/web/pack.py)) e não usa nada da internet.
 
 ## Compilação
 
@@ -121,9 +126,13 @@ main/
 ├── auto_gen.c / .h   # Simulador de máquina: ritmo, paradas e ruído (fonte do pulse_gen)
 ├── tally.c / .h      # Contabilidade: pulsos válidos, ruídos e paradas
 ├── state_log.c / .h  # Estado do teste gravado em anel na partição autostate
-├── wallclock.c / .h  # Hora real (vinda do navegador)
+├── history.c / .h    # Histórico (intervalos e eventos), gráfico da última hora e CSVs
+├── ringlog.c / .h    # Registro em anel genérico na flash (usado por state_log e history)
+├── wallclock.c / .h  # Hora real e fuso (vindos do navegador)
 ├── wifi_ap.c / .h    # Ponto de acesso Wi-Fi
+├── web_server.c / .h # Servidor HTTP: página e API JSON
 ├── web/index.html    # Página do modo Automação
+├── web/pack.py       # Monta a página comprimida embutida no firmware
 ├── settings.c / .h   # Configurações do usuário, limites e persistência na NVS
 ├── screen.c / .h     # Buffer da tela: envia ao LCD só as linhas que mudaram
 ├── encoder.c / .h    # Encoder rotativo via PCNT, com aceleração

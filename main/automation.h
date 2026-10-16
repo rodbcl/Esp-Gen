@@ -7,9 +7,10 @@
 #include "tally.h"
 
 /*
- * Modo Automação: liga o AP Wi-Fi e conduz os testes longos configurados pela página web.
- * Guarda o perfil na NVS e o estado do teste a cada segundo (state_log), para retomar
- * sozinho após uma queda de energia. Funções seguras para chamar da UI e do servidor web.
+ * Modo Automação: liga o AP Wi-Fi e o servidor web e conduz os testes longos configurados
+ * pela página. Guarda o perfil na NVS, o estado do teste a cada segundo (state_log), para
+ * retomar sozinho após uma queda de energia, e o histórico (history).
+ * Funções seguras para chamar da UI e do servidor web.
  */
 
 typedef struct {
@@ -40,5 +41,8 @@ void automation_get_profile(auto_profile_t *p);
 // Valida e salva o perfil. Retorna NULL ou a mensagem de erro
 const char *automation_set_profile(const auto_profile_t *p);
 
-void automation_set_time(uint32_t epoch);
+// Hora e fuso (minutos em relação ao UTC) enviados pelo navegador
+void automation_set_time(uint32_t epoch, int32_t tz_min);
+// Conferência: registra o valor lido no contador. Retorna NULL ou a mensagem de erro
+const char *automation_check(uint64_t counter_value, uint64_t *expected);
 automation_status_t automation_status(void);
