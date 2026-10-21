@@ -5,11 +5,16 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "util.h"
 
 static const char *TAG = "pulse";
 
 /* 10 MHz -> 0,1 us de resolução (a 10 kHz, 1% de duty = 10 ticks) */
 #define RMT_RES_HZ    (1000000UL * PULSE_GEN_TICKS_PER_US)
+/* Ticks em 10 s: período = RMT_RES_DHZ / freq em décimos de Hz (a 0,1 Hz, 1e8 ticks) */
+#define RMT_RES_DHZ   (RMT_RES_HZ * 10)
+/* Frequência máxima: período de 20 ticks (2 us) */
+#define FREQ_DHZ_LIM  (RMT_RES_DHZ / 20)
 /*
  * Duração máxima de cada meio-símbolo. O limite do hardware é 32767, mas
  * mantê-lo curto garante que a memória do RMT (64 símbolos) esvazie
@@ -28,10 +33,10 @@ typedef struct {
 
 // Fonte de frequência fixa, usada por pulse_gen_start()
 typedef struct {
-    uint32_t freq;
+    uint32_t freq;          /* décimos de Hz */
     uint32_t duty;
-    uint32_t period_base;   /* RMT_RES_HZ / freq */
-    uint32_t period_rem;    /* RMT_RES_HZ % freq, distribuído via acumulador */
+    uint32_t period_base;   /* RMT_RES_DHZ / freq */
+    uint32_t period_rem;    /* RMT_RES_DHZ % freq, distribuído via acumulador */
     uint32_t err;
     uint64_t periods_left;
     uint32_t cur_toff;
@@ -53,12 +58,12 @@ static struct {
 } s_upd;
 
 /* ---------- Fonte fixa ---------- */
-static void IRAM_ATTR set_freq(fixed_t *f, uint32_t freq_hz, uint32_t duty_pct)
+static void IRAM_ATTR set_freq(fixed_t *f, uint32_t freq_dhz, uint32_t duty_pct)
 {
-    f->freq = freq_hz;
+    f->freq = freq_dhz;
     f->duty = duty_pct;
-    f->period_base = RMT_RES_HZ / freq_hz;
-    f->period_rem = RMT_RES_HZ % freq_hz;
+    f->period_base = RMT_RES_DHZ / freq_dhz;
+    f->period_rem = RMT_RES_DHZ % freq_dhz;
     f->err = 0;
 }
 
@@ -202,9 +207,9 @@ esp_err_t pulse_gen_start_source(pulse_gen_source_t src, void *ctx)
     return err;
 }
 
-esp_err_t pulse_gen_start(uint32_t freq_hz, uint32_t duty_pct, uint64_t periods)
+esp_err_t pulse_gen_start(uint32_t freq_dhz, uint32_t duty_pct, uint64_t periods)
 {
-    if (s_running || freq_hz == 0 || periods == 0 || freq_hz > RMT_RES_HZ / 20) {
+    if (s_running || freq_dhz == 0 || periods == 0 || freq_dhz > FREQ_DHZ_LIM) {
         return ESP_ERR_INVALID_ARG;
     }
     if (duty_pct > 100) {
@@ -212,25 +217,26 @@ esp_err_t pulse_gen_start(uint32_t freq_hz, uint32_t duty_pct, uint64_t periods)
     }
 
     s_fixed = (fixed_t) { .periods_left = periods };
-    set_freq(&s_fixed, freq_hz, duty_pct);
+    set_freq(&s_fixed, freq_dhz, duty_pct);
     s_upd.pending = false;
 
     esp_err_t err = pulse_gen_start_source(fixed_next, &s_fixed);
     if (err != ESP_OK) {
         return err;
     }
+    char fs[16];
+    fmt_freq(fs, sizeof(fs), freq_dhz);
     if (periods == PULSE_GEN_CONTINUOUS) {
-        ESP_LOGI(TAG, "start: %lu Hz, %lu %%, contínuo", (unsigned long)freq_hz, (unsigned long)duty_pct);
+        ESP_LOGI(TAG, "start: %s, %lu %%, contínuo", fs, (unsigned long)duty_pct);
     } else {
-        ESP_LOGI(TAG, "start: %lu Hz, %lu %%, %llu períodos",
-                 (unsigned long)freq_hz, (unsigned long)duty_pct, (unsigned long long)periods);
+        ESP_LOGI(TAG, "start: %s, %lu %%, %llu períodos", fs, (unsigned long)duty_pct, (unsigned long long)periods);
     }
     return ESP_OK;
 }
 
-esp_err_t pulse_gen_set(uint32_t freq_hz, uint32_t duty_pct)
+esp_err_t pulse_gen_set(uint32_t freq_dhz, uint32_t duty_pct)
 {
-    if (freq_hz == 0 || freq_hz > RMT_RES_HZ / 20) {
+    if (freq_dhz == 0 || freq_dhz > FREQ_DHZ_LIM) {
         return ESP_ERR_INVALID_ARG;
     }
     if (!s_running || s_eng.src != fixed_next) {
@@ -240,11 +246,13 @@ esp_err_t pulse_gen_set(uint32_t freq_hz, uint32_t duty_pct)
         duty_pct = 100;
     }
     portENTER_CRITICAL(&s_upd_lock);
-    s_upd.freq = freq_hz;
+    s_upd.freq = freq_dhz;
     s_upd.duty = duty_pct;
     s_upd.pending = true;
     portEXIT_CRITICAL(&s_upd_lock);
-    ESP_LOGI(TAG, "set: %lu Hz, %lu %%", (unsigned long)freq_hz, (unsigned long)duty_pct);
+    char fs[16];
+    fmt_freq(fs, sizeof(fs), freq_dhz);
+    ESP_LOGI(TAG, "set: %s, %lu %%", fs, (unsigned long)duty_pct);
     return ESP_OK;
 }
 
