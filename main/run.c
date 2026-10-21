@@ -12,7 +12,7 @@ static uint64_t s_periods;
 const char *run_start(void)
 {
     settings_t *cfg = settings_get();
-    if (cfg->freq == 0) {
+    if (cfg->freq_dhz == 0) {
         return "Frequencia = 0";
     }
     if (cfg->duty == 0) {
@@ -22,12 +22,16 @@ const char *run_start(void)
     if (cfg->mode == MODE_CONT) {
         periods = PULSE_GEN_CONTINUOUS;
     } else {
-        periods = cfg->mode == MODE_TIME ? (uint64_t)cfg->freq * cfg->time_s : cfg->qty;
+        periods = cfg->mode == MODE_TIME ? (uint64_t)cfg->freq_dhz * cfg->time_s / 10 : cfg->qty;
     }
     if (periods == 0) {
-        return cfg->mode == MODE_TIME ? "Tempo = 0" : "Quantidade = 0";
+        if (cfg->mode != MODE_TIME) {
+            return "Quantidade = 0";
+        }
+        // Abaixo de 1 Hz o tempo pode não caber nem um período
+        return cfg->time_s == 0 ? "Tempo = 0" : "Tempo < 1 periodo";
     }
-    if (pulse_gen_start(cfg->freq, cfg->duty, periods) != ESP_OK) {
+    if (pulse_gen_start(cfg->freq_dhz, cfg->duty, periods) != ESP_OK) {
         return "Falha ao iniciar";
     }
     s_periods = periods;
@@ -39,18 +43,18 @@ const char *run_start(void)
 void run_adjust(settings_field_t field, int steps, int accel)
 {
     settings_t *cfg = settings_get();
-    uint32_t freq = cfg->freq;
+    uint32_t freq = cfg->freq_dhz;
     uint16_t duty = cfg->duty;
     settings_adjust(field, steps, accel);
-    /* 0 Hz ou 0% não são aceitos com a geração rodando */
-    if (cfg->freq == 0) {
-        cfg->freq = 1;
+    /* 0 Hz ou 0% não são aceitos com a geração rodando: o mínimo é 0,1 Hz */
+    if (cfg->freq_dhz == 0) {
+        cfg->freq_dhz = 1;
     }
     if (cfg->duty == 0) {
         cfg->duty = 1;
     }
-    if (cfg->freq != freq || cfg->duty != duty) {
-        pulse_gen_set(cfg->freq, cfg->duty);
+    if (cfg->freq_dhz != freq || cfg->duty != duty) {
+        pulse_gen_set(cfg->freq_dhz, cfg->duty);
     }
 }
 

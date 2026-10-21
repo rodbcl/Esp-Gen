@@ -79,7 +79,7 @@ static void item_text(int item, char *label, char *value, size_t n)
         break;
     case FIELD_FREQ:
         snprintf(label, n, "Freq:");
-        snprintf(value, n, "%luHz", (unsigned long)s_cfg->freq);
+        fmt_freq(value, n, s_cfg->freq_dhz);
         break;
     case FIELD_DUTY:
         snprintf(label, n, "Duty:");
@@ -165,12 +165,16 @@ static void render(void)
     } else if (s_state == UI_RUN && s_cfg->mode == MODE_CONT) {
         int64_t secs = run_elapsed_us() / 1000000;
         screen_printf(0, "CONT %02ld:%02ld:%02ld", (long)(secs / 3600), (long)(secs / 60 % 60), (long)(secs % 60));
-        screen_printf(1, "%c%luHz %c%u%%", s_run_sel == FIELD_FREQ ? '>' : ' ', (unsigned long)s_cfg->freq,
-                      s_run_sel == FIELD_DUTY ? '>' : ' ', s_cfg->duty);
+        char fs[12];
+        fmt_freq(fs, sizeof(fs), s_cfg->freq_dhz);
+        screen_printf(1, "%c%s %c%u%%", s_run_sel == FIELD_FREQ ? '>' : ' ', fs, s_run_sel == FIELD_DUTY ? '>' : ' ',
+                      s_cfg->duty);
         screen_printf(3, "Segure START: parar");
     } else if (s_state == UI_RUN) {
         int64_t elapsed = run_elapsed_us();
-        screen_printf(0, "RUN %luHz %u%%", (unsigned long)s_cfg->freq, s_cfg->duty);
+        char fs[12];
+        fmt_freq(fs, sizeof(fs), s_cfg->freq_dhz);
+        screen_printf(0, "RUN %s %u%%", fs, s_cfg->duty);
         if (s_cfg->mode == MODE_TIME) {
             int64_t left = (int64_t)s_cfg->time_s - elapsed / 1000000;
             if (left < 0) {
@@ -178,7 +182,7 @@ static void render(void)
             }
             screen_printf(1, "Resta %02ld:%02ld", (long)(left / 60), (long)(left % 60));
         } else {
-            uint64_t done = (uint64_t)elapsed * s_cfg->freq / 1000000;
+            uint64_t done = (uint64_t)elapsed * s_cfg->freq_dhz / 10000000;
             if (done > run_periods()) {
                 done = run_periods();
             }
@@ -232,9 +236,10 @@ static void ui_task(void *arg)
                 if (memcmp(&s_edit_backup, s_cfg, sizeof(*s_cfg)) != 0) {
                     settings_save();
                 }
-                ESP_LOGI(TAG, "modo=%s freq=%lu duty=%u tempo=%lus qtde=%lu", MODE_NAMES[s_cfg->mode],
-                         (unsigned long)s_cfg->freq,
-                         s_cfg->duty, (unsigned long)s_cfg->time_s, (unsigned long)s_cfg->qty);
+                char fs[12];
+                fmt_freq(fs, sizeof(fs), s_cfg->freq_dhz);
+                ESP_LOGI(TAG, "modo=%s freq=%s duty=%u tempo=%lus qtde=%lu", MODE_NAMES[s_cfg->mode], fs, s_cfg->duty,
+                         (unsigned long)s_cfg->time_s, (unsigned long)s_cfg->qty);
                 s_state = UI_NAV;
             }
             break;

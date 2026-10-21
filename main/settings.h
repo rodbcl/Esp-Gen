@@ -4,7 +4,7 @@
 
 // Configurações do usuário, persistidas na NVS. Requer nvs_flash_init() antes de settings_load().
 
-#define FREQ_MAX        10000
+#define FREQ_DHZ_MAX    100000  // 10 kHz, em décimos de Hz
 #define DUTY_MAX        100
 #define TIME_MAX_S      (60 * 60)
 #define QTY_MAX         10000
@@ -16,7 +16,7 @@ typedef struct {
     uint8_t version;
     uint8_t mode;
     uint16_t duty;
-    uint32_t freq;
+    uint32_t freq_dhz;      // décimos de Hz (10 = 1 Hz)
     uint32_t time_s;
     uint32_t qty;
 } settings_t;

@@ -3,13 +3,13 @@
 #include "nvs.h"
 #include "util.h"
 
-#define SETTINGS_VERSION 1
+#define SETTINGS_VERSION 2     // v1 guardava a frequência em Hz
 
 static settings_t s_cfg = {
     .version = SETTINGS_VERSION,
     .mode = MODE_TIME,
     .duty = 50,
-    .freq = 1000,
+    .freq_dhz = 10000,
     .time_s = 10,
     .qty = 100,
 };
@@ -22,9 +22,15 @@ void settings_load(void)
     }
     settings_t tmp;
     size_t len = sizeof(tmp);
-    if (nvs_get_blob(h, "s", &tmp, &len) == ESP_OK && len == sizeof(tmp) && tmp.version == SETTINGS_VERSION &&
-        tmp.mode < MODE_COUNT && tmp.mode != MODE_AUTO) {
-        s_cfg = tmp;
+    if (nvs_get_blob(h, "s", &tmp, &len) == ESP_OK && len == sizeof(tmp) && tmp.mode < MODE_COUNT &&
+        tmp.mode != MODE_AUTO) {
+        if (tmp.version == 1) {
+            tmp.freq_dhz *= 10;
+            tmp.version = SETTINGS_VERSION;
+        }
+        if (tmp.version == SETTINGS_VERSION) {
+            s_cfg = tmp;
+        }
     }
     nvs_close(h);
 }
@@ -53,6 +59,21 @@ int settings_field_count(void)
     return s_cfg.mode == MODE_CONT ? FIELD_AMOUNT : FIELD_COUNT;
 }
 
+/*
+ * Abaixo de 1 Hz cada clique vale 0,1 Hz; a partir de 1 Hz, 1, 10 ou 100 Hz conforme `accel`.
+ * Descendo, o passo inteiro para em 1 Hz antes de entrar na faixa de décimos.
+ */
+static uint32_t freq_step(uint32_t f, int dir, int accel)
+{
+    if (dir > 0) {
+        return f < 10 ? f + 1 : (uint32_t)clamp_i32((int32_t)f + accel * 10, 0, FREQ_DHZ_MAX);
+    }
+    if (f <= 10) {
+        return f > 0 ? f - 1 : 0;
+    }
+    return (uint32_t)clamp_i32((int32_t)f - accel * 10, 10, FREQ_DHZ_MAX);
+}
+
 void settings_adjust(settings_field_t field, int steps, int accel)
 {
     switch (field) {
@@ -62,7 +83,9 @@ void settings_adjust(settings_field_t field, int steps, int accel)
         break;
     }
     case FIELD_FREQ:
-        s_cfg.freq = clamp_i32((int32_t)s_cfg.freq + steps * accel, 0, FREQ_MAX);
+        for (int i = 0; i < (steps < 0 ? -steps : steps); i++) {
+            s_cfg.freq_dhz = freq_step(s_cfg.freq_dhz, steps, accel);
+        }
         break;
     case FIELD_DUTY:
         s_cfg.duty = clamp_i32((int32_t)s_cfg.duty + steps * (accel > 1 ? 5 : 1), 0, DUTY_MAX);
