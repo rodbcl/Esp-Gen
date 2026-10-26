@@ -1,5 +1,6 @@
 #include "automation.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -10,6 +11,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "auto_out.h"
 #include "history.h"
 #include "pulse_gen.h"
 #include "state_log.h"
@@ -20,7 +22,7 @@
 static const char *TAG = "auto";
 
 #define NVS_NS              "auto"
-#define PROFILE_VERSION     1
+#define PROFILE_VERSION     2
 #define SAVE_PERIOD_MS      1000    // estado gravado a cada segundo enquanto há mudança
 #define SAVE_IDLE_S         60      // sem mudança (máquina parada), grava ao menos a cada minuto
 
@@ -28,6 +30,9 @@ typedef struct {
     uint8_t version;
     auto_profile_t p;
 } stored_profile_t;
+
+// Versão 1: perfil sem as saídas extras (os campos novos vêm depois de noise_guard_us)
+#define PROFILE_V1_LEN  (offsetof(stored_profile_t, p) + offsetof(auto_profile_t, running_enabled))
 
 static SemaphoreHandle_t s_mtx;
 static auto_profile_t s_prof;
@@ -49,9 +54,11 @@ static void load_profile(void)
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
         return;
     }
-    stored_profile_t sp;
+    // Perfil da versão 1: os campos novos ficam com o valor padrão
+    stored_profile_t sp = { .p = s_prof };
     size_t len = sizeof(sp);
-    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK && len == sizeof(sp) && sp.version == PROFILE_VERSION &&
+    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK &&
+        ((sp.version == PROFILE_VERSION && len == sizeof(sp)) || (sp.version == 1 && len == PROFILE_V1_LEN)) &&
         auto_gen_validate(&sp.p) == NULL) {
         s_prof = sp.p;
     }
@@ -123,6 +130,11 @@ static void begin_generation(void)
         ESP_LOGE(TAG, "falha ao iniciar a geração");
         return;
     }
+    if (auto_out_start(&s_prof) != ESP_OK) {
+        ESP_LOGE(TAG, "falha ao iniciar as saídas extras");
+        pulse_gen_stop();
+        return;
+    }
     s_since_us = esp_timer_get_time();
     s_running = true;
 }
@@ -150,6 +162,7 @@ static void stop_generation(void)
         return;
     }
     pulse_gen_stop();
+    auto_out_stop();
     s_elapsed_base = elapsed_s();
     s_running = false;
     save_state();
