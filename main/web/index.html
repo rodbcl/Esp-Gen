@@ -170,6 +170,16 @@ canvas { width: 100%; display: block; border-radius: 10px; background: var(--bg)
 .est b { font-family: var(--font-num); color: var(--fg); font-weight: 600; }
 .err { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); border-radius: 10px; padding: 10px 12px; font-size: 14px; }
 .note { font-size: 13px; color: var(--muted); margin: 0; }
+.rules { display: flex; flex-direction: column; gap: 14px; }
+.rule { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 12px; }
+.rule h4 { margin: 0; font-size: 15px; }
+.sched-list { display: flex; flex-direction: column; gap: 8px; }
+.sched-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: center; }
+input[type=time] {
+  width: 100%; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); font-family: var(--font-num); font-size: 16px;
+}
+.btn.icon { padding: 10px 12px; color: var(--bad); }
 fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
 
@@ -344,25 +354,55 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
 
         <div class="card">
           <div class="sec-head">
-            <div><h3>Paradas da máquina</h3><p>Intervalos sem produção</p></div>
-            <label class="switch"><input type="checkbox" id="p-stops-on" data-k="stops_enabled" aria-label="Ativar paradas"><span></span></label>
+            <div><h3>Running e paradas</h3><p>Saída GPIO23: 24 V com a máquina rodando, 0 V nas paradas. Desligado, a máquina nunca para</p></div>
+            <label class="switch"><input type="checkbox" id="p-running-on" data-k="running_enabled" aria-label="Ativar running"><span></span></label>
           </div>
-          <div class="field" data-dep="p-stops-on">
-            <span class="flabel">Uma parada a cada</span>
-            <div class="pair">
-              <input type="number" id="p-stop-every-min" data-k="stop_every_min_s" data-s="60" min="1" inputmode="numeric" aria-label="Intervalo mínimo entre paradas em minutos">
-              <em>a</em>
-              <input type="number" id="p-stop-every-max" data-k="stop_every_max_s" data-s="60" min="1" inputmode="numeric" aria-label="Intervalo máximo entre paradas em minutos">
-              <span class="unit">min</span>
+          <div class="rules" data-dep="p-running-on">
+            <p class="note">As regras ativadas se somam; paradas sobrepostas viram uma só.</p>
+
+            <div class="rule">
+              <div class="sec-head">
+                <div><h4>Ciclo fixo</h4><p>Desde o início do teste: roda, para, roda…</p></div>
+                <label class="switch"><input type="checkbox" id="p-cycle-on" data-k="cycle_enabled" aria-label="Ativar ciclo fixo"><span></span></label>
+              </div>
+              <div class="grid2" data-dep="p-cycle-on">
+                <div class="field">
+                  <label for="p-cycle-run">Roda por</label>
+                  <div class="single"><input type="number" id="p-cycle-run" data-k="cycle_run_s" data-s="60" min="1" inputmode="numeric"><span class="unit">min</span></div>
+                </div>
+                <div class="field">
+                  <label for="p-cycle-stop">Para por</label>
+                  <div class="single"><input type="number" id="p-cycle-stop" data-k="cycle_stop_s" data-s="60" min="1" inputmode="numeric"><span class="unit">min</span></div>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="field" data-dep="p-stops-on">
-            <span class="flabel">Duração de cada parada</span>
-            <div class="pair">
-              <input type="number" id="p-stop-len-min" data-k="stop_len_min_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração mínima da parada em minutos">
-              <em>a</em>
-              <input type="number" id="p-stop-len-max" data-k="stop_len_max_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração máxima da parada em minutos">
-              <span class="unit">min</span>
+
+            <div class="rule">
+              <div class="sec-head">
+                <div><h4>Horários do dia</h4><p>Todo dia, na hora do celular (ex.: almoço)</p></div>
+                <button class="btn" type="button" id="btn-sched-add" style="padding:7px 12px;font-size:13px">Adicionar</button>
+              </div>
+              <div id="sched-list" class="sched-list"></div>
+            </div>
+
+            <div class="rule">
+              <div class="sec-head">
+                <div><h4>Paradas por dia</h4><p>Em horários sorteados a cada dia</p></div>
+                <label class="switch"><input type="checkbox" id="p-daily-on" data-k="daily_enabled" aria-label="Ativar paradas por dia"><span></span></label>
+              </div>
+              <div class="field" data-dep="p-daily-on">
+                <label for="p-daily-count">Quantas por dia</label>
+                <div class="single"><input type="number" id="p-daily-count" data-k="daily_count" data-s="1" min="1" max="48" inputmode="numeric"><span class="unit">×</span></div>
+              </div>
+              <div class="field" data-dep="p-daily-on">
+                <span class="flabel">Duração de cada uma</span>
+                <div class="pair">
+                  <input type="number" id="p-daily-len-min" data-k="daily_len_min_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração mínima em minutos">
+                  <em>a</em>
+                  <input type="number" id="p-daily-len-max" data-k="daily_len_max_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração máxima em minutos">
+                  <span class="unit">min</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -408,13 +448,6 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
               <label for="p-guard">Distância dos pulsos</label>
               <div class="single"><input type="number" id="p-guard" data-k="noise_guard_us" data-s="1000" step="1" min="0" inputmode="decimal"><span class="unit">ms</span></div>
             </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="sec-head">
-            <div><h3>Running</h3><p>Saída GPIO23: 24 V com a máquina rodando, 0 V durante as paradas</p></div>
-            <label class="switch"><input type="checkbox" id="p-running-on" data-k="running_enabled" aria-label="Ativar running"><span></span></label>
           </div>
         </div>
 
@@ -546,14 +579,15 @@ function toast(msg) {
 /* ---------- Perfil padrão e validação (mesmas regras do firmware) ---------- */
 const DEFAULT_PROFILE = {
   rate_min_mhz: 1000, rate_max_mhz: 8000, regime_s: 3600, jitter_pct: 15, pulse_on_us: 50000,
-  stops_enabled: true, stop_every_min_s: 3600, stop_every_max_s: 4 * 3600, stop_len_min_s: 300, stop_len_max_s: 1800,
   noise_enabled: true, noise_every_min_ms: 5000, noise_every_max_ms: 60000, noise_on_min_us: 50, noise_on_max_us: 500,
   noise_burst_min: 1, noise_burst_max: 3, noise_gap_us: 200, noise_guard_us: 10000,
-  running_enabled: true,
+  running_enabled: true, cycle_enabled: false, cycle_run_s: 50 * 60, cycle_stop_s: 10 * 60,
+  sched: [{ start_min: 12 * 60, len_min: 60 }],
+  daily_enabled: true, daily_count: 4, daily_len_min_s: 300, daily_len_max_s: 1800,
   quality_enabled: true, reject_bp: 200, reject_delay_ms: 500, reject_on_us: 50000,
   report_enabled: true, report_every_min_s: 4 * 3600, report_every_max_s: 8 * 3600, report_len_min_s: 600, report_len_max_s: 1800,
 };
-const LONG_MAX_S = 7 * 86400;
+const LONG_MAX_S = 7 * 86400, SCHED_MAX = 8;
 const RATE_MIN_MHZ = 10, RATE_MAX_MHZ = 1000000;
 
 function validate(p) {
@@ -563,10 +597,21 @@ function validate(p) {
   const periodMin = 1e9 / p.rate_max_mhz;
   if (p.pulse_on_us >= periodMin) return `Com ${hz(p.rate_max_mhz)} Hz o período é de ${nf.format(periodMin / 1000)} ms; a largura do pulso precisa ser menor que isso.`;
   if (p.regime_s < 0 || p.jitter_pct < 0 || p.jitter_pct > 50) return 'A oscilação entre pulsos vai de 0 a 50 %.';
-  if (p.stops_enabled) {
-    if (p.stop_every_min_s < 60 || p.stop_len_min_s < 60) return 'Paradas: use valores de pelo menos 1 minuto.';
-    if (p.stop_every_min_s > p.stop_every_max_s) return 'Paradas: o intervalo mínimo está maior que o máximo.';
-    if (p.stop_len_min_s > p.stop_len_max_s) return 'Paradas: a duração mínima está maior que a máxima.';
+  if (p.running_enabled) {
+    if (p.cycle_enabled) {
+      if (p.cycle_run_s < 60 || p.cycle_stop_s < 60) return 'Ciclo fixo: use tempos de pelo menos 1 minuto.';
+      if (p.cycle_run_s > LONG_MAX_S || p.cycle_stop_s > LONG_MAX_S) return 'Ciclo fixo: use tempos de até 7 dias.';
+    }
+    if (p.sched.length > SCHED_MAX) return 'Horários do dia: no máximo 8.';
+    for (const s of p.sched) {
+      if (!(s.start_min >= 0 && s.start_min < 1440)) return 'Horários do dia: confira os horários.';
+      if (!(s.len_min >= 1 && s.len_min <= 720)) return 'Horários do dia: cada parada dura de 1 min a 12 h.';
+    }
+    if (p.daily_enabled) {
+      if (p.daily_count < 1 || p.daily_count > 48) return 'Paradas por dia: de 1 a 48.';
+      if (p.daily_len_min_s < 60 || p.daily_len_max_s > 720 * 60) return 'Paradas por dia: cada uma dura de 1 min a 12 h.';
+      if (p.daily_len_min_s > p.daily_len_max_s) return 'Paradas por dia: a duração mínima está maior que a máxima.';
+    }
   }
   if (p.noise_enabled) {
     if (p.noise_every_min_ms < 10) return 'Ruído: o intervalo mínimo é de 0,01 s.';
@@ -643,13 +688,29 @@ function simWindows(rnd, enabled, eMin, eMax, lMin, lMax, until) {
   return w;
 }
 
+/* Paradas do running num dia (0 h a 24 h, teste começando à 0 h), já juntando as sobrepostas */
+function runningStops(p, rnd, DAY) {
+  if (!p.running_enabled) return [];
+  const w = [];
+  if (p.cycle_enabled) for (let t = p.cycle_run_s; t < DAY; t += p.cycle_run_s + p.cycle_stop_s) w.push([t, t + p.cycle_stop_s]);
+  for (const s of p.sched) w.push([s.start_min * 60, (s.start_min + s.len_min) * 60]);
+  if (p.daily_enabled) for (let i = 0; i < p.daily_count; i++) { const a = uni(rnd, 0, DAY); w.push([a, a + uni(rnd, p.daily_len_min_s, p.daily_len_max_s)]); }
+  w.sort((a, b) => a[0] - b[0]);
+  const m = [];
+  for (const [a, b] of w) {
+    if (m.length && a <= m[m.length - 1][1]) m[m.length - 1][1] = Math.max(m[m.length - 1][1], b);
+    else m.push([a, b]);
+  }
+  return m.map(([a, b]) => [a, Math.min(DAY, b)]);
+}
+
 /* 24 h: ritmo base de cada período e paradas */
 function simDay(p, rnd) {
   const lo = p.rate_min_mhz / 1000, hi = p.rate_max_mhz / 1000, DAY = 86400;
   const regimes = [], stops = [];
   const step = p.regime_s > 0 && lo !== hi ? p.regime_s : DAY;
   for (let t = 0; t < DAY; t += step) regimes.push([t, Math.min(DAY, t + step), p.regime_s > 0 ? uni(rnd, lo, hi) : (lo + hi) / 2]);
-  stops.push(...simWindows(rnd, p.stops_enabled, p.stop_every_min_s, p.stop_every_max_s, p.stop_len_min_s, p.stop_len_max_s, DAY));
+  stops.push(...runningStops(p, rnd, DAY));
   const reports = simWindows(rnd, p.report_enabled, p.report_every_min_s, p.report_every_max_s, p.report_len_min_s, p.report_len_max_s, DAY);
   let pulses = 0;
   for (const [a, b, f] of regimes) {
@@ -712,7 +773,7 @@ const demo = {
     this.last = now;
     if (!this.running) return;
     if (now > this.regimeEnd) { this.base = uni(this.rnd, this.p.rate_min_mhz / 1000, this.p.rate_max_mhz / 1000); this.regimeEnd = now + this.p.regime_s; }
-    if (this.p.stops_enabled && now > this.nextStop && !this.machineStopUntil) {
+    if (this.p.running_enabled && now > this.nextStop && !this.machineStopUntil) {
       this.machineStopUntil = now + 90; this.stops++;
     }
     if (this.machineStopUntil && now > this.machineStopUntil) { this.machineStopUntil = 0; this.nextStop = now + 600; }
@@ -905,6 +966,34 @@ $('#check-form').addEventListener('submit', async e => {
 const form = $('#profile-form');
 let rateMode = 'range', varyMode = 'period', lastRegime = 3600, previewWin = '10', seed = 1;
 
+/* Horários do dia: lista editável, até SCHED_MAX */
+let sched = [];
+const hhmm = m => pad(Math.floor(m / 60)) + ':' + pad(m % 60);
+function renderSched() {
+  $('#sched-list').innerHTML = sched.map((s, i) => `<div class="sched-row">
+    <input type="time" value="${hhmm(s.start_min)}" data-i="${i}" data-f="start" aria-label="Horário da parada ${i + 1}">
+    <div class="single"><input type="number" min="1" max="720" value="${s.len_min}" data-i="${i}" data-f="len" inputmode="numeric" aria-label="Duração da parada ${i + 1} em minutos"><span class="unit">min</span></div>
+    <button type="button" class="btn icon" data-del="${i}" aria-label="Remover horário ${i + 1}">✕</button></div>`).join('')
+    || '<p class="note">Nenhum horário fixo.</p>';
+  $('#btn-sched-add').disabled = sched.length >= SCHED_MAX;
+}
+$('#sched-list').addEventListener('input', e => {
+  const i = +e.target.dataset.i;
+  if (Number.isNaN(i)) return;
+  if (e.target.dataset.f === 'start') {
+    const [h, m] = e.target.value.split(':').map(Number);
+    sched[i].start_min = h * 60 + m;
+  } else sched[i].len_min = parseInt(e.target.value, 10) || 0;
+});
+$('#sched-list').addEventListener('click', e => {
+  const b = e.target.closest('[data-del]'); if (!b) return;
+  sched.splice(+b.dataset.del, 1); renderSched(); syncForm();
+});
+$('#btn-sched-add').addEventListener('click', () => {
+  if (sched.length >= SCHED_MAX) return;
+  sched.push({ start_min: 12 * 60, len_min: 30 }); renderSched(); syncForm();
+});
+
 function setSeg(id, v) { for (const b of $$('#' + id + ' button')) b.setAttribute('aria-pressed', String(b.dataset.v === v)); }
 
 function fillForm(p) {
@@ -913,6 +1002,8 @@ function fillForm(p) {
     if (el.type === 'checkbox') el.checked = !!v;
     else el.value = +(v / +el.dataset.s).toFixed(3);
   }
+  sched = (p.sched || []).map(s => ({ ...s }));
+  renderSched();
   rateMode = p.rate_min_mhz === p.rate_max_mhz ? 'fixed' : 'range';
   $('#p-rate-fixed').value = p.rate_min_mhz / 1000;
   varyMode = p.regime_s === 0 ? 'pulse' : 'period';
@@ -930,6 +1021,7 @@ function readForm() {
     p.regime_s = 0;
   }
   for (const k in p) if (Number.isNaN(p[k])) p[k] = 0;
+  p.sched = sched.map(s => ({ ...s }));
   return p;
 }
 

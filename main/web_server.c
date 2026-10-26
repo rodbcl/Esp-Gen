@@ -34,10 +34,10 @@ static const struct {
 #define U32(f)  { #f, offsetof(auto_profile_t, f), F_U32 }
 #define BOOL(f) { #f, offsetof(auto_profile_t, f), F_BOOL }
     U32(rate_min_mhz), U32(rate_max_mhz), U32(regime_s), U32(jitter_pct), U32(pulse_on_us),
-    BOOL(stops_enabled), U32(stop_every_min_s), U32(stop_every_max_s), U32(stop_len_min_s), U32(stop_len_max_s),
     BOOL(noise_enabled), U32(noise_every_min_ms), U32(noise_every_max_ms), U32(noise_on_min_us), U32(noise_on_max_us),
     U32(noise_burst_min), U32(noise_burst_max), U32(noise_gap_us), U32(noise_guard_us),
-    BOOL(running_enabled),
+    BOOL(running_enabled), BOOL(cycle_enabled), U32(cycle_run_s), U32(cycle_stop_s),
+    BOOL(daily_enabled), U32(daily_count), U32(daily_len_min_s), U32(daily_len_max_s),
     BOOL(quality_enabled), U32(reject_bp), U32(reject_delay_ms), U32(reject_on_us),
     BOOL(report_enabled), U32(report_every_min_s), U32(report_every_max_s), U32(report_len_min_s), U32(report_len_max_s),
 #undef U32
@@ -199,9 +199,36 @@ static esp_err_t profile_get(httpd_req_t *req)
         }
         writer_out(&w, line);
     }
-    writer_out(&w, "}");
+    // Horários fixos do dia: [{"start_min", "len_min"}, ...]
+    writer_out(&w, ",\"sched\":[");
+    for (uint32_t i = 0; i < p.sched_count; i++) {
+        snprintf(line, sizeof(line), "%s{\"start_min\":%" PRIu32 ",\"len_min\":%" PRIu32 "}", i ? "," : "",
+                 p.sched[i].start_min, p.sched[i].len_min);
+        writer_out(&w, line);
+    }
+    writer_out(&w, "]}");
     writer_end(&w);
     return ESP_OK;
+}
+
+// Lê a lista de horários fixos; false se o formato é inválido
+static bool read_sched(const cJSON *json, auto_profile_t *p)
+{
+    const cJSON *arr = cJSON_GetObjectItemCaseSensitive(json, "sched");
+    if (!cJSON_IsArray(arr) || cJSON_GetArraySize(arr) > AUTO_SCHED_MAX) {
+        return false;
+    }
+    p->sched_count = 0;
+    const cJSON *it;
+    cJSON_ArrayForEach(it, arr) {
+        double start, len;
+        if (!json_number(it, "start_min", &start) || !json_number(it, "len_min", &len) || start < 0 || len < 0 ||
+            start > UINT32_MAX || len > UINT32_MAX) {
+            return false;
+        }
+        p->sched[p->sched_count++] = (auto_sched_t) { .start_min = (uint32_t)start, .len_min = (uint32_t)len };
+    }
+    return true;
 }
 
 static esp_err_t profile_post(httpd_req_t *req)
@@ -227,7 +254,11 @@ static esp_err_t profile_post(httpd_req_t *req)
             return send_error(req, "400 Bad Request", msg);
         }
     }
+    bool sched_ok = read_sched(json, &p);
     cJSON_Delete(json);
+    if (!sched_ok) {
+        return send_error(req, "400 Bad Request", "Campo do perfil inválido: sched.");
+    }
     const char *err = automation_set_profile(&p);
     if (err) {
         return send_error(req, "409 Conflict", err);

@@ -35,6 +35,11 @@ void wallclock_set_tz(int32_t offset_min)
     s_tz_min = offset_min;
 }
 
+int32_t wallclock_tz(void)
+{
+    return s_tz_min;
+}
+
 void wallclock_format(uint32_t epoch, char *buf, int len)
 {
     time_t t = (time_t)epoch + (time_t)s_tz_min * 60;
