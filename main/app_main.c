@@ -4,6 +4,7 @@
  */
 #include "nvs_flash.h"
 
+#include "auto_out.h"
 #include "automation.h"
 #include "board.h"
 #include "pulse_gen.h"
@@ -12,8 +13,9 @@
 
 void app_main(void)
 {
-    /* Saída desligada o quanto antes (GPIO27 em 1 = Q1 conduz = PULSO em 0 V) */
+    /* Saídas desligadas o quanto antes (GPIO em 1 = Q1 conduz = saída em 0 V) */
     ESP_ERROR_CHECK(pulse_gen_init(PIN_PULSE_OUT, PULSE_INVERTED));
+    ESP_ERROR_CHECK(auto_out_init());
 
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {

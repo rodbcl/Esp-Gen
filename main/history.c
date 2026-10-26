@@ -16,6 +16,7 @@ static const char *TAG = "history";
 typedef enum { REC_START = 1, REC_STOP, REC_POWER, REC_CHECK, REC_TIMEFIX, REC_INTERVAL } rec_type_t;
 
 #define FLAG_TIME_OK    0x01
+#define FLAG_CHECK_REJ  0x02    // REC_CHECK com conferência dos refugos
 #define MAX_FIXES       16
 
 // Dados de cada registro do anel
@@ -31,18 +32,29 @@ typedef struct __attribute__((packed)) {
             uint16_t stop_s;
             uint16_t stops;
             uint32_t dur_s;
+            uint32_t rejects;
+            uint32_t valid_rep;
+            uint32_t rejects_rep;
+            uint16_t report_s;
+            uint16_t reports;
         } iv;               // REC_INTERVAL
         struct __attribute__((packed)) {
             uint64_t value;
             uint64_t expected;
+            uint64_t rej_value;     // com FLAG_CHECK_REJ
+            uint64_t rej_expected;
         } check;            // REC_CHECK
         struct __attribute__((packed)) {
             uint64_t valid;
             uint32_t noise;
             uint32_t stops;
+            uint64_t rejects;
+            uint64_t valid_rep;
+            uint64_t rejects_rep;
+            uint32_t reports;
         } total;            // REC_STOP, REC_POWER
         int32_t delta_s;    // REC_TIMEFIX
-        uint8_t raw[16];
+        uint8_t raw[48];
     };
 } rec_t;
 
@@ -69,19 +81,19 @@ static bool s_fix_pending;          // houve queda de energia e a hora ainda nã
 
 // Intervalo em andamento
 static struct {
-    uint64_t base_valid;
-    uint64_t base_noise;
-    uint32_t base_stops;
+    tally_t base;
     uint32_t count;                 // intervalos completos
     uint32_t stop_s;
+    uint32_t report_s;
     uint32_t start_epoch;
     bool start_ok;
 } s_iv;
 
 // Pulsos por minuto da última hora (só em RAM)
 static struct {
-    uint32_t valid[HISTORY_MINUTES];
+    uint32_t valid[HISTORY_MINUTES];    // produção, com e sem stop report
     uint32_t noise[HISTORY_MINUTES];
+    uint32_t rejects[HISTORY_MINUTES];  // refugos, com e sem stop report
     uint32_t mark_s;                // tempo de teste no início do minuto atual
     tally_t base;
     tally_t cur;
@@ -94,7 +106,7 @@ static struct {
 static void append(rec_t *r, uint32_t epoch, bool time_ok)
 {
     r->epoch = epoch;
-    r->flags = time_ok ? FLAG_TIME_OK : 0;
+    r->flags = (r->flags & ~FLAG_TIME_OK) | (time_ok ? FLAG_TIME_OK : 0);
     if (ringlog_append(&s_log, r) != ESP_OK) {
         ESP_LOGW(TAG, "falha ao gravar registro %d", r->type);
     }
@@ -113,12 +125,21 @@ static void reset_minutes(const tally_t *t, uint32_t elapsed_s)
     s_min.cur = *t;
 }
 
+static uint64_t produced(const tally_t *t)
+{
+    return t->valid + t->valid_rep;
+}
+
+static uint64_t rejected(const tally_t *t)
+{
+    return t->rejects + t->rejects_rep;
+}
+
 static void begin_interval(const tally_t *t)
 {
-    s_iv.base_valid = t->valid;
-    s_iv.base_noise = t->noise;
-    s_iv.base_stops = t->stops;
+    s_iv.base = *t;
     s_iv.stop_s = 0;
+    s_iv.report_s = 0;
     s_iv.start_epoch = wallclock_now();
     s_iv.start_ok = wallclock_confirmed();
 }
@@ -128,16 +149,32 @@ static void write_interval(const tally_t *t, uint32_t dur_s)
     rec_t r = {
         .type = REC_INTERVAL,
         .iv = {
-            .valid = (uint32_t)(t->valid - s_iv.base_valid),
-            .noise = (uint32_t)(t->noise - s_iv.base_noise),
+            .valid = (uint32_t)(t->valid - s_iv.base.valid),
+            .noise = (uint32_t)(t->noise - s_iv.base.noise),
             .stop_s = s_iv.stop_s > UINT16_MAX ? UINT16_MAX : s_iv.stop_s,
-            .stops = (uint16_t)(t->stops - s_iv.base_stops),
+            .stops = (uint16_t)(t->stops - s_iv.base.stops),
             .dur_s = dur_s,
+            .rejects = (uint32_t)(t->rejects - s_iv.base.rejects),
+            .valid_rep = (uint32_t)(t->valid_rep - s_iv.base.valid_rep),
+            .rejects_rep = (uint32_t)(t->rejects_rep - s_iv.base.rejects_rep),
+            .report_s = s_iv.report_s > UINT16_MAX ? UINT16_MAX : s_iv.report_s,
+            .reports = (uint16_t)(t->reports - s_iv.base.reports),
         },
     };
     append(&r, s_iv.start_epoch, s_iv.start_ok);
     s_iv.count++;
     begin_interval(t);
+}
+
+static void set_total(rec_t *r, const tally_t *t)
+{
+    r->total.valid = t->valid;
+    r->total.noise = (uint32_t)t->noise;
+    r->total.stops = t->stops;
+    r->total.rejects = t->rejects;
+    r->total.valid_rep = t->valid_rep;
+    r->total.rejects_rep = t->rejects_rep;
+    r->total.reports = t->reports;
 }
 
 /* ---------- Leitura ---------- */
@@ -257,7 +294,8 @@ void history_test_stopped(const tally_t *t, uint32_t elapsed_s)
     if (elapsed_s > done) {
         write_interval(t, elapsed_s - done);
     }
-    rec_t r = { .type = REC_STOP, .total = { .valid = t->valid, .noise = (uint32_t)t->noise, .stops = t->stops } };
+    rec_t r = { .type = REC_STOP };
+    set_total(&r, t);
     append_now(&r);
     UNLOCK();
 }
@@ -275,6 +313,10 @@ void history_power_resumed(const tally_t *t, uint32_t elapsed_s, bool last_time_
             base.valid += r.iv.valid;
             base.noise += r.iv.noise;
             base.stops += r.iv.stops;
+            base.rejects += r.iv.rejects;
+            base.valid_rep += r.iv.valid_rep;
+            base.rejects_rep += r.iv.rejects_rep;
+            base.reports += r.iv.reports;
             s_iv.count++;
         }
     }
@@ -287,7 +329,8 @@ void history_power_resumed(const tally_t *t, uint32_t elapsed_s, bool last_time_
     }
     reset_minutes(t, elapsed_s);
 
-    rec_t ev = { .type = REC_POWER, .total = { .valid = t->valid, .noise = (uint32_t)t->noise, .stops = t->stops } };
+    rec_t ev = { .type = REC_POWER };
+    set_total(&ev, t);
     append_now(&ev);
     s_fix_pending = true;
     UNLOCK();
@@ -309,19 +352,27 @@ void history_time_fixed(int32_t delta_s)
     UNLOCK();
 }
 
-void history_check(uint64_t value, uint64_t expected)
+void history_check(uint64_t value, uint64_t expected, const uint64_t *rej_value, uint64_t rej_expected)
 {
     LOCK();
     rec_t r = { .type = REC_CHECK, .check = { .value = value, .expected = expected } };
+    if (rej_value) {
+        r.flags = FLAG_CHECK_REJ;
+        r.check.rej_value = *rej_value;
+        r.check.rej_expected = rej_expected;
+    }
     append_now(&r);
     UNLOCK();
 }
 
-void history_tick(const tally_t *t, uint32_t elapsed_s, bool machine_stopped)
+void history_tick(const tally_t *t, uint32_t elapsed_s, bool machine_stopped, bool report)
 {
     LOCK();
     if (machine_stopped) {
         s_iv.stop_s++;
+    }
+    if (report) {
+        s_iv.report_s++;
     }
     if (elapsed_s >= (s_iv.count + 1) * HISTORY_INTERVAL_S) {
         write_interval(t, HISTORY_INTERVAL_S);
@@ -329,8 +380,10 @@ void history_tick(const tally_t *t, uint32_t elapsed_s, bool machine_stopped)
     if (elapsed_s >= s_min.mark_s + 60) {
         memmove(s_min.valid, s_min.valid + 1, sizeof(s_min.valid) - sizeof(s_min.valid[0]));
         memmove(s_min.noise, s_min.noise + 1, sizeof(s_min.noise) - sizeof(s_min.noise[0]));
-        s_min.valid[HISTORY_MINUTES - 1] = (uint32_t)(t->valid - s_min.base.valid);
+        memmove(s_min.rejects, s_min.rejects + 1, sizeof(s_min.rejects) - sizeof(s_min.rejects[0]));
+        s_min.valid[HISTORY_MINUTES - 1] = (uint32_t)(produced(t) - produced(&s_min.base));
         s_min.noise[HISTORY_MINUTES - 1] = (uint32_t)(t->noise - s_min.base.noise);
+        s_min.rejects[HISTORY_MINUTES - 1] = (uint32_t)(rejected(t) - rejected(&s_min.base));
         s_min.base = *t;
         s_min.mark_s += 60;
     }
@@ -338,22 +391,25 @@ void history_tick(const tally_t *t, uint32_t elapsed_s, bool machine_stopped)
     UNLOCK();
 }
 
-void history_per_minute(uint32_t valid[HISTORY_MINUTES], uint32_t noise[HISTORY_MINUTES])
+void history_per_minute(uint32_t valid[HISTORY_MINUTES], uint32_t noise[HISTORY_MINUTES],
+                        uint32_t rejects[HISTORY_MINUTES])
 {
     LOCK();
     for (int i = 0; i < HISTORY_MINUTES - 1; i++) {
         valid[i] = s_min.valid[i + 1];
         noise[i] = s_min.noise[i + 1];
+        rejects[i] = s_min.rejects[i + 1];
     }
-    valid[HISTORY_MINUTES - 1] = (uint32_t)(s_min.cur.valid - s_min.base.valid);
+    valid[HISTORY_MINUTES - 1] = (uint32_t)(produced(&s_min.cur) - produced(&s_min.base));
     noise[HISTORY_MINUTES - 1] = (uint32_t)(s_min.cur.noise - s_min.base.noise);
+    rejects[HISTORY_MINUTES - 1] = (uint32_t)(rejected(&s_min.cur) - rejected(&s_min.base));
     UNLOCK();
 }
 
 /* ---------- Saída ---------- */
 void history_json(history_out_t out, void *ctx)
 {
-    char line[160];
+    char line[320];
     fixes_t fx;
     ringlog_pos_t pos;
     rec_t r;
@@ -371,8 +427,10 @@ void history_json(history_out_t out, void *ctx)
         uint32_t t = rec_epoch(&r, pos.seq, &fx, &ok_t);
         snprintf(line, sizeof(line),
                  "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"dur\":%" PRIu32 ",\"valid\":%" PRIu32 ",\"noise\":%" PRIu32
-                 ",\"stop_s\":%u,\"stops\":%u}",
-                 first ? "" : ",", t, ok_t, r.iv.dur_s, r.iv.valid, r.iv.noise, r.iv.stop_s, r.iv.stops);
+                 ",\"stop_s\":%u,\"stops\":%u,\"rejects\":%" PRIu32 ",\"valid_rep\":%" PRIu32
+                 ",\"rejects_rep\":%" PRIu32 ",\"report_s\":%u,\"reports\":%u}",
+                 first ? "" : ",", t, ok_t, r.iv.dur_s, r.iv.valid, r.iv.noise, r.iv.stop_s, r.iv.stops, r.iv.rejects,
+                 r.iv.valid_rep, r.iv.rejects_rep, r.iv.report_s, r.iv.reports);
         out(ctx, line);
         first = false;
     }
@@ -387,8 +445,9 @@ void history_json(history_out_t out, void *ctx)
             snprintf(line, sizeof(line), "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"start\"}", sep, t, ok_t);
             break;
         case REC_STOP:
-            snprintf(line, sizeof(line), "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"stop\",\"valid\":%" PRIu64 "}",
-                     sep, t, ok_t, r.total.valid);
+            snprintf(line, sizeof(line),
+                     "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"stop\",\"valid\":%" PRIu64 ",\"rejects\":%" PRIu64 "}",
+                     sep, t, ok_t, r.total.valid, r.total.rejects);
             break;
         case REC_POWER: {
             int32_t off = power_off_s(pos.seq, &fx);
@@ -397,15 +456,22 @@ void history_json(history_out_t out, void *ctx)
                 snprintf(off_s, sizeof(off_s), "%ld", (long)off);
             }
             snprintf(line, sizeof(line),
-                     "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"power\",\"valid\":%" PRIu64 ",\"off_s\":%s}",
-                     sep, t, ok_t, r.total.valid, off_s);
+                     "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"power\",\"valid\":%" PRIu64 ",\"rejects\":%" PRIu64
+                     ",\"off_s\":%s}",
+                     sep, t, ok_t, r.total.valid, r.total.rejects, off_s);
             break;
         }
-        case REC_CHECK:
+        case REC_CHECK: {
+            char rej[96] = "";
+            if (r.flags & FLAG_CHECK_REJ) {
+                snprintf(rej, sizeof(rej), ",\"rej_value\":%" PRIu64 ",\"rej_expected\":%" PRIu64, r.check.rej_value,
+                         r.check.rej_expected);
+            }
             snprintf(line, sizeof(line),
-                     "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"check\",\"value\":%" PRIu64 ",\"expected\":%" PRIu64 "}",
-                     sep, t, ok_t, r.check.value, r.check.expected);
+                     "%s{\"t\":%" PRIu32 ",\"ok\":%d,\"type\":\"check\",\"value\":%" PRIu64 ",\"expected\":%" PRIu64 "%s}",
+                     sep, t, ok_t, r.check.value, r.check.expected, rej);
             break;
+        }
         default:
             continue;
         }
@@ -433,14 +499,18 @@ static void fmt_time(uint32_t epoch, char *buf, int len)
 static void csv_interval_line(history_out_t out, void *ctx, const rec_t *r, uint32_t start, bool ok_t, uint32_t end,
                               uint64_t total)
 {
-    char line[200], t0[20], t1[20];
+    char line[256], t0[20], t1[20];
     fmt_time(start, t0, sizeof(t0));
     fmt_time(start ? (end ? end : start + r->iv.dur_s) : 0, t1, sizeof(t1));
+    // Frequência média da produção (com e sem stop report) no tempo com a máquina rodando
     uint32_t active = r->iv.dur_s > r->iv.stop_s ? r->iv.dur_s - r->iv.stop_s : 0;
-    uint32_t hz100 = active ? (uint32_t)((uint64_t)r->iv.valid * 100 / active) : 0;
-    snprintf(line, sizeof(line), "%s;%s;%" PRIu32 ";%" PRIu32 ";%u;%u;%" PRIu32 ",%02" PRIu32 ";%" PRIu64 ";%s\r\n",
-             t0, t1, r->iv.valid, r->iv.noise, r->iv.stops, r->iv.stop_s, hz100 / 100, hz100 % 100, total,
-             ok_t ? "sim" : "nao");
+    uint64_t prod = (uint64_t)r->iv.valid + r->iv.valid_rep;
+    uint32_t hz100 = active ? (uint32_t)(prod * 100 / active) : 0;
+    snprintf(line, sizeof(line),
+             "%s;%s;%" PRIu32 ";%" PRIu32 ";%" PRIu32 ";%u;%u;%" PRIu32 ";%" PRIu32 ";%u;%u;%" PRIu32 ",%02" PRIu32
+             ";%" PRIu64 ";%s\r\n",
+             t0, t1, r->iv.valid, r->iv.rejects, r->iv.noise, r->iv.stops, r->iv.stop_s, r->iv.valid_rep,
+             r->iv.rejects_rep, r->iv.reports, r->iv.report_s, hz100 / 100, hz100 % 100, total, ok_t ? "sim" : "nao");
     out(ctx, line);
 }
 
@@ -455,7 +525,8 @@ void history_csv_intervals(history_out_t out, void *ctx)
 
     LOCK();
     collect_fixes(&fx);
-    out(ctx, "\xEF\xBB\xBF" "inicio;fim;pulsos_validos;ruidos;paradas;tempo_parado_s;freq_media_hz;total_validos;hora_confirmada\r\n");
+    out(ctx, "\xEF\xBB\xBF" "inicio;fim;pulsos_validos;refugos;ruidos;paradas;tempo_parado_s;pulsos_em_report;refugos_em_report;"
+        "stop_reports;tempo_report_s;freq_media_hz;total_validos;hora_confirmada\r\n");
     // Cada linha sai quando o próximo intervalo é lido: se ele começa depois do fim
     // calculado, houve uma queda de energia no meio e o fim real é o início dele
     for (bool ok = first_rec(&pos, &r); ok; ok = ringlog_next(&s_log, &pos, &r)) {
@@ -483,7 +554,7 @@ void history_csv_intervals(history_out_t out, void *ctx)
 
 void history_csv_events(history_out_t out, void *ctx)
 {
-    char line[200], t0[20], detail[64];
+    char line[256], t0[20], detail[64];
     fixes_t fx;
     ringlog_pos_t pos;
     rec_t r;
@@ -491,17 +562,19 @@ void history_csv_events(history_out_t out, void *ctx)
 
     LOCK();
     collect_fixes(&fx);
-    out(ctx, "\xEF\xBB\xBF" "data_hora;evento;valor_contador;enviados;diferenca;detalhe\r\n");
+    out(ctx, "\xEF\xBB\xBF" "data_hora;evento;valor_contador;enviados;diferenca;refugos_contador;refugos_enviados;"
+        "diferenca_refugos;detalhe\r\n");
     for (bool ok = first_rec(&pos, &r); ok; ok = ringlog_next(&s_log, &pos, &r)) {
         uint32_t t = rec_epoch(&r, pos.seq, &fx, &ok_t);
         fmt_time(t, t0, sizeof(t0));
         const char *unconf = ok_t ? "" : " (hora não confirmada)";
         switch (r.type) {
         case REC_START:
-            snprintf(line, sizeof(line), "%s;inicio;;;;%s\r\n", t0, unconf);
+            snprintf(line, sizeof(line), "%s;inicio;;;;;;;%s\r\n", t0, unconf);
             break;
         case REC_STOP:
-            snprintf(line, sizeof(line), "%s;fim;;%" PRIu64 ";;teste interrompido%s\r\n", t0, r.total.valid, unconf);
+            snprintf(line, sizeof(line), "%s;fim;;%" PRIu64 ";;;%" PRIu64 ";;teste interrompido%s\r\n", t0,
+                     r.total.valid, r.total.rejects, unconf);
             break;
         case REC_POWER: {
             int32_t off = power_off_s(pos.seq, &fx);
@@ -510,13 +583,19 @@ void history_csv_events(history_out_t out, void *ctx)
             } else {
                 snprintf(detail, sizeof(detail), "duração desconhecida; teste retomado");
             }
-            snprintf(line, sizeof(line), "%s;queda_energia;;%" PRIu64 ";;%s%s\r\n", t0, r.total.valid, detail, unconf);
+            snprintf(line, sizeof(line), "%s;queda_energia;;%" PRIu64 ";;;%" PRIu64 ";;%s%s\r\n", t0, r.total.valid,
+                     r.total.rejects, detail, unconf);
             break;
         }
         case REC_CHECK: {
             int64_t diff = (int64_t)(r.check.value - r.check.expected);
-            snprintf(line, sizeof(line), "%s;conferencia;%" PRIu64 ";%" PRIu64 ";%" PRId64 ";%s\r\n", t0,
-                     r.check.value, r.check.expected, diff, unconf);
+            char rej[64] = ";;";
+            if (r.flags & FLAG_CHECK_REJ) {
+                snprintf(rej, sizeof(rej), "%" PRIu64 ";%" PRIu64 ";%" PRId64, r.check.rej_value, r.check.rej_expected,
+                         (int64_t)(r.check.rej_value - r.check.rej_expected));
+            }
+            snprintf(line, sizeof(line), "%s;conferencia;%" PRIu64 ";%" PRIu64 ";%" PRId64 ";%s;%s\r\n", t0,
+                     r.check.value, r.check.expected, diff, rej, unconf);
             break;
         }
         default:

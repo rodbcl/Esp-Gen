@@ -3,9 +3,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "rmt_out.h"
 
 /*
- * Gerador de pulsos por hardware (periférico RMT).
+ * Gerador de pulsos da saída principal (um canal rmt_out).
  * `invert` = true quando o estágio de saída inverte o sinal do GPIO.
  *
  * pulse_gen_start(): gera exatamente `periods` períodos de `freq_dhz` (décimos de Hz) com `duty_pct` %
@@ -17,14 +18,10 @@
  */
 
 #define PULSE_GEN_CONTINUOUS    UINT64_MAX
-#define PULSE_GEN_TICKS_PER_US  10      /* resolução: 0,1 us */
+#define PULSE_GEN_TICKS_PER_US  RMT_OUT_TICKS_PER_US
 
-/*
- * Fonte da forma de onda: preenche o nível (0 = inativo, 1 = ativo) e a duração em ticks do próximo
- * trecho, e retorna false quando a geração acabou. Trechos de duração 0 são ignorados.
- * É chamada em contexto de ISR: só aritmética inteira, sem bloquear e sem ponto flutuante.
- */
-typedef bool (*pulse_gen_source_t)(void *ctx, uint32_t *level, uint32_t *ticks);
+/* Fonte da forma de onda (ver rmt_out_source_t) */
+typedef rmt_out_source_t pulse_gen_source_t;
 
 esp_err_t pulse_gen_init(int gpio, bool invert);
 esp_err_t pulse_gen_start(uint32_t freq_dhz, uint32_t duty_pct, uint64_t periods);

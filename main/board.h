@@ -8,6 +8,8 @@
  * Botão START/STOP: GPIO26 (ativo em 0)
  * Saída de pulsos: GPIO27 -> Q1 (BC547) -> push-pull Q2/Q3 -> PULSO (24 V)
  *   O estágio de saída inverte: GPIO27 em 1 = saída desligada.
+ * Saídas extras da Automação, com o mesmo estágio (24 V, invertido):
+ *   RUNNING = GPIO23, QUALIDADE = GPIO19, STOP REPORT = GPIO18
  */
 
 #define PIN_SDA         21
@@ -18,6 +20,10 @@
 #define PIN_BTN_START   26
 #define PIN_PULSE_OUT   27
 #define PULSE_INVERTED  true    /* Q1 inverte o sinal */
+#define PIN_RUNNING_OUT 23
+#define PIN_QUALITY_OUT 19
+#define PIN_REPORT_OUT  18
+#define OUT_INVERTED    true    /* estágio igual ao da saída de pulsos */
 
 #define LCD_COLS        16      /* ajuste para 20 se o display for 20x4 */
 #define LCD_ROWS        2       /* ajuste para 4 se o display for 20x4 */

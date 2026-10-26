@@ -1,5 +1,6 @@
 #include "automation.h"
 
+#include <stddef.h>
 #include <string.h>
 
 #include "esp_log.h"
@@ -10,6 +11,7 @@
 #include "freertos/task.h"
 #include "nvs.h"
 
+#include "auto_out.h"
 #include "history.h"
 #include "pulse_gen.h"
 #include "state_log.h"
@@ -20,7 +22,7 @@
 static const char *TAG = "auto";
 
 #define NVS_NS              "auto"
-#define PROFILE_VERSION     1
+#define PROFILE_VERSION     2
 #define SAVE_PERIOD_MS      1000    // estado gravado a cada segundo enquanto há mudança
 #define SAVE_IDLE_S         60      // sem mudança (máquina parada), grava ao menos a cada minuto
 
@@ -28,6 +30,9 @@ typedef struct {
     uint8_t version;
     auto_profile_t p;
 } stored_profile_t;
+
+// Versão 1: perfil sem as saídas extras (os campos novos vêm depois de noise_guard_us)
+#define PROFILE_V1_LEN  (offsetof(stored_profile_t, p) + offsetof(auto_profile_t, running_enabled))
 
 static SemaphoreHandle_t s_mtx;
 static auto_profile_t s_prof;
@@ -49,9 +54,11 @@ static void load_profile(void)
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
         return;
     }
-    stored_profile_t sp;
+    // Perfil da versão 1: os campos novos ficam com o valor padrão
+    stored_profile_t sp = { .p = s_prof };
     size_t len = sizeof(sp);
-    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK && len == sizeof(sp) && sp.version == PROFILE_VERSION &&
+    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK &&
+        ((sp.version == PROFILE_VERSION && len == sizeof(sp)) || (sp.version == 1 && len == PROFILE_V1_LEN)) &&
         auto_gen_validate(&sp.p) == NULL) {
         s_prof = sp.p;
     }
@@ -100,6 +107,10 @@ static state_rec_t current_rec(void)
         .stops = t.stops > UINT16_MAX ? UINT16_MAX : t.stops,
         .valid = t.valid,
         .noise = (uint32_t)t.noise,
+        .rejects = t.rejects,
+        .valid_rep = t.valid_rep,
+        .rejects_rep = (uint32_t)t.rejects_rep,
+        .reports = t.reports > UINT16_MAX ? UINT16_MAX : t.reports,
         .elapsed_s = elapsed_s(),
         .epoch = wallclock_now(),
     };
@@ -123,6 +134,11 @@ static void begin_generation(void)
         ESP_LOGE(TAG, "falha ao iniciar a geração");
         return;
     }
+    if (auto_out_start(&s_prof) != ESP_OK) {
+        ESP_LOGE(TAG, "falha ao iniciar as saídas extras");
+        pulse_gen_stop();
+        return;
+    }
     s_since_us = esp_timer_get_time();
     s_running = true;
 }
@@ -134,7 +150,10 @@ static void resume_test(void)
     if (r->epoch) {
         wallclock_set(r->epoch, false);
     }
-    tally_t t = { .valid = r->valid, .noise = r->noise, .stops = r->stops };
+    tally_t t = {
+        .valid = r->valid, .noise = r->noise, .stops = r->stops, .rejects = r->rejects,
+        .valid_rep = r->valid_rep, .rejects_rep = r->rejects_rep, .reports = r->reports,
+    };
     tally_reset(&t);
     s_elapsed_base = r->elapsed_s;
     history_power_resumed(&t, r->elapsed_s, r->time_ok);
@@ -150,6 +169,7 @@ static void stop_generation(void)
         return;
     }
     pulse_gen_stop();
+    auto_out_stop();
     s_elapsed_base = elapsed_s();
     s_running = false;
     save_state();
@@ -166,10 +186,12 @@ static void save_task(void *arg)
         bool running = s_running;
         tally_t t = tally_get();
         uint32_t elapsed = elapsed_s();
-        bool stopped = running && auto_gen_status().stopped;
+        auto_gen_status_t gen = running ? auto_gen_status() : (auto_gen_status_t) { 0 };
         if (running) {
             state_rec_t rec = current_rec();
-            bool changed = rec.valid != s_saved.valid || rec.noise != s_saved.noise || rec.stops != s_saved.stops;
+            bool changed = rec.valid != s_saved.valid || rec.noise != s_saved.noise || rec.stops != s_saved.stops ||
+                           rec.rejects != s_saved.rejects || rec.valid_rep != s_saved.valid_rep ||
+                           rec.rejects_rep != s_saved.rejects_rep || rec.reports != s_saved.reports;
             if (changed || esp_timer_get_time() - s_saved_us >= SAVE_IDLE_S * 1000000LL) {
                 save_state();
             }
@@ -177,7 +199,7 @@ static void save_task(void *arg)
         xSemaphoreGive(s_mtx);
         // Fora da trava: a leitura do histórico pelo servidor pode demorar
         if (running) {
-            history_tick(&t, elapsed, stopped);
+            history_tick(&t, elapsed, gen.stopped, gen.report);
         }
     }
 }
@@ -302,15 +324,18 @@ void automation_set_time(uint32_t epoch, int32_t tz_min)
     xSemaphoreGive(s_mtx);
 }
 
-const char *automation_check(uint64_t counter_value, uint64_t *expected)
+const char *automation_check(uint64_t counter_value, const uint64_t *rej_value, uint64_t *expected,
+                             uint64_t *rej_expected)
 {
     const char *err = NULL;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     if (!s_running && s_elapsed_base == 0) {
         err = "Nenhum teste em andamento para conferir.";
     } else {
-        *expected = tally_get().valid;
-        history_check(counter_value, *expected);
+        tally_t t = tally_get();
+        *expected = t.valid;
+        *rej_expected = t.rejects;
+        history_check(counter_value, *expected, rej_value, *rej_expected);
     }
     xSemaphoreGive(s_mtx);
     return err;
