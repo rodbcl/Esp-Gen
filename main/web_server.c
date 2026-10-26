@@ -37,6 +37,9 @@ static const struct {
     BOOL(stops_enabled), U32(stop_every_min_s), U32(stop_every_max_s), U32(stop_len_min_s), U32(stop_len_max_s),
     BOOL(noise_enabled), U32(noise_every_min_ms), U32(noise_every_max_ms), U32(noise_on_min_us), U32(noise_on_max_us),
     U32(noise_burst_min), U32(noise_burst_max), U32(noise_gap_us), U32(noise_guard_us),
+    BOOL(running_enabled),
+    BOOL(quality_enabled), U32(reject_bp), U32(reject_delay_ms), U32(reject_on_us),
+    BOOL(report_enabled), U32(report_every_min_s), U32(report_every_max_s), U32(report_len_min_s), U32(report_len_max_s),
 #undef U32
 #undef BOOL
 };
@@ -157,9 +160,16 @@ static esp_err_t status_get(httpd_req_t *req)
     snprintf(line, sizeof(line), ",\"machine\":\"%s\",\"stop_left_s\":%" PRIu32 ",\"rate_mhz\":%" PRIu32,
              st.gen.stopped ? "stop" : "run", st.gen.stop_left_s, st.gen.rate_mhz);
     writer_out(&w, line);
-    for (int k = 0; k < 2; k++) {
-        const uint32_t *v = k ? noise : valid;
-        writer_out(&w, k ? "],\"noise_per_min\":[" : ",\"per_min\":[");
+    snprintf(line, sizeof(line),
+             ",\"rejects\":%" PRIu64 ",\"valid_rep\":%" PRIu64 ",\"rejects_rep\":%" PRIu64 ",\"reports\":%" PRIu32
+             ",\"report\":%s,\"report_left_s\":%" PRIu32,
+             st.tally.rejects, st.tally.valid_rep, st.tally.rejects_rep, st.tally.reports, st.gen.report ? "true" : "false",
+             st.gen.report_left_s);
+    writer_out(&w, line);
+    static const char *const SERIES[] = { ",\"per_min\":[", "],\"noise_per_min\":[", "],\"rejects_per_min\":[" };
+    for (int k = 0; k < 3; k++) {
+        const uint32_t *v = k == 0 ? valid : k == 1 ? noise : rejects;
+        writer_out(&w, SERIES[k]);
         for (int i = 0; i < HISTORY_MINUTES; i++) {
             snprintf(line, sizeof(line), "%s%" PRIu32, i ? "," : "", v[i]);
             writer_out(&w, line);
@@ -260,19 +270,28 @@ static esp_err_t check_post(httpd_req_t *req)
     if (!json) {
         return ESP_OK;
     }
-    double value;
+    double value, rej = 0;
     bool ok = json_number(json, "value", &value) && value >= 0;
+    // Refugos: opcional
+    bool has_rej = json_number(json, "rejects", &rej);
+    ok = ok && (!has_rej || rej >= 0);
     cJSON_Delete(json);
     if (!ok) {
         return send_error(req, "400 Bad Request", "Digite o valor mostrado no contador.");
     }
-    uint64_t expected;
-    const char *err = automation_check((uint64_t)value, &expected);
+    uint64_t expected, rej_expected, rej_value = (uint64_t)rej;
+    const char *err = automation_check((uint64_t)value, has_rej ? &rej_value : NULL, &expected, &rej_expected);
     if (err) {
         return send_error(req, "409 Conflict", err);
     }
-    char out[96];
-    snprintf(out, sizeof(out), "{\"value\":%" PRIu64 ",\"expected\":%" PRIu64 "}", (uint64_t)value, expected);
+    char out[192];
+    int n = snprintf(out, sizeof(out), "{\"value\":%" PRIu64 ",\"expected\":%" PRIu64, (uint64_t)value, expected);
+    if (has_rej) {
+        snprintf(out + n, sizeof(out) - n, ",\"rej_value\":%" PRIu64 ",\"rej_expected\":%" PRIu64 "}", rej_value,
+                 rej_expected);
+    } else {
+        snprintf(out + n, sizeof(out) - n, "}");
+    }
     return send_json(req, out);
 }
 

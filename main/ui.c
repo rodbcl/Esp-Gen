@@ -99,14 +99,16 @@ static void item_text(int item, char *label, char *value, size_t n)
 
 /*
  * Automação sem teste: como conectar (nome do AP, senha e IP se alternam).
- * Com teste: pulsos válidos enviados e, alternando, ritmo/parada, tempo de teste e AP.
+ * Com teste: pulsos válidos enviados e, alternando, ritmo/parada/stop report, tempo de teste,
+ * refugos e AP.
  */
 static void render_auto(void)
 {
     automation_status_t st = automation_status();
-    int slot = (int)(esp_timer_get_time() / (AUTO_ROTATE_MS * 1000LL)) % 3;
+    int64_t tick = esp_timer_get_time() / (AUTO_ROTATE_MS * 1000LL);
 
     if (!st.running) {
+        int slot = (int)(tick % 3);
         screen_printf(0, "Conecte-se ao AP");
         if (slot == 0) {
             screen_printf(1, "%s", wifi_ap_ssid());
@@ -116,13 +118,15 @@ static void render_auto(void)
             screen_printf(1, "IP %s", WIFI_AP_IP);
         }
     } else {
+        int slot = (int)(tick % 4);
         screen_printf(0, "Pulsos%10llu", (unsigned long long)st.tally.valid);
-        if (slot == 0 && st.gen.stopped) {
-            unsigned long left = st.gen.stop_left_s;
+        if (slot == 0 && (st.gen.stopped || st.gen.report)) {
+            const char *what = st.gen.stopped ? "Maq parada" : "Stop rep. ";
+            unsigned long left = st.gen.stopped ? st.gen.stop_left_s : st.gen.report_left_s;
             if (left >= 3600) {
-                screen_printf(1, "Maq parada %luh%02lu", left / 3600, left / 60 % 60);
+                screen_printf(1, "%s %luh%02lu", what, left / 3600, left / 60 % 60);
             } else {
-                screen_printf(1, "Maq parada %02lu:%02lu", left / 60, left % 60);
+                screen_printf(1, "%s %02lu:%02lu", what, left / 60, left % 60);
             }
         } else if (slot == 0) {
             screen_printf(1, "Ritmo %lu,%02lu Hz", (unsigned long)(st.gen.rate_mhz / 1000),
@@ -134,6 +138,8 @@ static void render_auto(void)
             } else {
                 screen_printf(1, "Tempo %02lu:%02lu:%02lu", e / 3600, e / 60 % 60, e % 60);
             }
+        } else if (slot == 2) {
+            screen_printf(1, "Refugos%9llu", (unsigned long long)st.tally.rejects);
         } else {
             screen_printf(1, "AP %s", wifi_ap_ssid());
         }

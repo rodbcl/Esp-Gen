@@ -43,6 +43,8 @@ const char *automation_set_profile(const auto_profile_t *p);
 
 // Hora e fuso (minutos em relação ao UTC) enviados pelo navegador
 void automation_set_time(uint32_t epoch, int32_t tz_min);
-// Conferência: registra o valor lido no contador. Retorna NULL ou a mensagem de erro
-const char *automation_check(uint64_t counter_value, uint64_t *expected);
+// Conferência: registra o valor lido no contador e, se `rej_value` não é NULL, os refugos lidos.
+// Preenche o que foi enviado fora do stop report. Retorna NULL ou a mensagem de erro
+const char *automation_check(uint64_t counter_value, const uint64_t *rej_value, uint64_t *expected,
+                             uint64_t *rej_expected);
 automation_status_t automation_status(void);

@@ -11,7 +11,7 @@
  *   GET  /api/profile       perfil salvo          POST /api/profile  valida e salva
  *   POST /api/start         inicia o teste        POST /api/stop     interrompe
  *   POST /api/time          {"epoch", "tz"} hora e fuso do navegador
- *   POST /api/check         {"value"} conferência com o display do contador
+ *   POST /api/check         {"value", "rejects"?} conferência com o display do contador
  *   GET  /api/history       intervalos e eventos do teste
  *   GET  /api/history.csv   intervalos            GET  /api/events.csv  eventos
  */

@@ -14,6 +14,8 @@
   --accent-soft: #dce7fb;
   --on-accent: #ffffff;
   --noise: #c026d3;         /* ruído */
+  --reject: #ea580c;        /* refugo (qualidade) */
+  --report: #0d9488;        /* stop report */
   --idle: #8a97a6;          /* máquina parada */
   --good: #15803d;
   --bad: #c62828;
@@ -29,7 +31,7 @@
   :root:not([data-theme="light"]) {
     --bg: #0e141a; --surface: #161f28; --surface-2: #1e2934; --line: #2a3643;
     --fg: #e5ecf2; --muted: #8b9aaa; --accent: #4d8fff; --accent-ink: #84b2ff; --accent-soft: #15284a; --on-accent: #ffffff;
-    --noise: #e879f9; --idle: #64748b; --good: #4ade80; --bad: #f87171;
+    --noise: #e879f9; --reject: #fb923c; --report: #2dd4bf; --idle: #64748b; --good: #4ade80; --bad: #f87171;
     --display-bg: #090e15; --display-fg: #6cc0ff; --display-dim: #4f6680;
     color-scheme: dark;
   }
@@ -37,7 +39,7 @@
 :root[data-theme="dark"] {
   --bg: #0e141a; --surface: #161f28; --surface-2: #1e2934; --line: #2a3643;
   --fg: #e5ecf2; --muted: #8b9aaa; --accent: #4d8fff; --accent-ink: #84b2ff; --accent-soft: #15284a; --on-accent: #ffffff;
-  --noise: #e879f9; --idle: #64748b; --good: #4ade80; --bad: #f87171;
+  --noise: #e879f9; --reject: #fb923c; --report: #2dd4bf; --idle: #64748b; --good: #4ade80; --bad: #f87171;
   --display-bg: #090e15; --display-fg: #6cc0ff; --display-dim: #4f6680;
   color-scheme: dark;
 }
@@ -89,6 +91,7 @@ button { cursor: pointer; }
 .display .sub { display: flex; gap: 16px; flex-wrap: wrap; font-family: var(--font-num); font-size: 13px; color: var(--display-dim); }
 .display .sub b { color: var(--display-fg); font-weight: 500; }
 .display .sub .nz b { color: #f0a6f7; }
+.display .sub .rj b { color: #fdba74; }
 
 /* Cartões e grades */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -97,6 +100,7 @@ button { cursor: pointer; }
 .stat span { display: block; font-size: 12px; color: var(--muted); }
 .stat b { display: block; font-family: var(--font-num); font-variant-numeric: tabular-nums; font-size: 19px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat b.stopped { color: var(--idle); }
+.stat b.report { color: var(--report); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
 .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
@@ -104,8 +108,9 @@ svg.chart { width: 100%; height: auto; display: block; }
 svg.chart text { fill: var(--muted); font-family: var(--font-num); font-size: 10px; }
 
 /* Conferência */
-.check { display: flex; gap: 8px; }
-.check input { flex: 1; min-width: 0; }
+.check { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; }
+.check input { min-width: 0; }
+@media (max-width: 380px) { .check { grid-template-columns: 1fr 1fr; } .check button { grid-column: span 2; } }
 .result { display: flex; align-items: baseline; gap: 10px; font-size: 14px; }
 .result b { font-family: var(--font-num); font-size: 20px; }
 .result.ok b { color: var(--good); }
@@ -221,8 +226,10 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
       <span class="lbl">Pulsos válidos enviados</span>
       <span class="big" id="d-valid">0</span>
       <div class="sub">
+        <span class="rj">refugos <b id="d-rejects">0</b></span>
         <span class="nz">ruído <b id="d-noise">0</b></span>
         <span>paradas <b id="d-stops">0</b></span>
+        <span>reports <b id="d-reports">0</b></span>
       </div>
     </div>
 
@@ -231,12 +238,14 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
       <div class="stat"><span>Ritmo agora</span><b id="s-rate">–</b></div>
       <div class="stat"><span>Máquina</span><b id="s-machine">–</b></div>
       <div class="stat"><span>Início</span><b id="s-start">–</b></div>
+      <div class="stat"><span>Stop report</span><b id="s-report">–</b></div>
+      <div class="stat"><span>Em report (pulsos/refugos)</span><b id="s-rep-sent">–</b></div>
     </div>
 
     <div class="card">
       <div class="row">
         <h2>Última hora</h2>
-        <div class="legend"><span><i style="background:var(--accent)"></i>pulsos/min</span><span><i style="background:var(--noise)"></i>ruído</span></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>pulsos/min</span><span><i style="background:var(--reject)"></i>refugo</span><span><i style="background:var(--noise)"></i>ruído</span></div>
       </div>
       <svg class="chart" id="chart-min" viewBox="0 0 340 120" role="img" aria-label="Pulsos por minuto na última hora"></svg>
     </div>
@@ -244,13 +253,14 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
     <div class="card">
       <div>
         <h2>Conferir contador</h2>
-        <p class="note" style="margin-top:4px">Digite o valor que aparece no display do contador agora.</p>
+        <p class="note" style="margin-top:4px">Digite o que o contador mostra agora. Os refugos são opcionais. Pulsos enviados com o stop report ativo não entram na conta.</p>
       </div>
       <form class="check" id="check-form">
-        <input type="number" id="check-value" inputmode="numeric" min="0" placeholder="Valor no contador" aria-label="Valor no contador">
+        <input type="number" id="check-value" inputmode="numeric" min="0" placeholder="Pulsos" aria-label="Pulsos no contador">
+        <input type="number" id="check-rejects" inputmode="numeric" min="0" placeholder="Refugos" aria-label="Refugos no contador (opcional)">
         <button class="btn primary" type="submit">Conferir</button>
       </form>
-      <div class="result" id="check-result" hidden></div>
+      <div id="check-result" style="display:flex;flex-direction:column;gap:6px" hidden></div>
     </div>
 
     <button class="btn big primary" id="btn-start" type="button" hidden>Iniciar teste</button>
@@ -270,7 +280,7 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
       </div>
       <canvas id="preview" height="150" aria-label="Prévia da forma de onda do perfil"></canvas>
       <div class="row">
-        <div class="est"><span>≈ <b id="est-hour">–</b> pulsos/h</span><span>≈ <b id="est-day">–</b> por dia</span></div>
+        <div class="est"><span>≈ <b id="est-hour">–</b> pulsos/h</span><span>≈ <b id="est-day">–</b> por dia</span><span id="est-rej-wrap">≈ <b id="est-rej">–</b> refugos/dia</span></div>
         <button class="btn" type="button" id="btn-reroll" style="padding:7px 12px;font-size:13px">Sortear outra</button>
       </div>
     </div>
@@ -401,6 +411,59 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
           </div>
         </div>
 
+        <div class="card">
+          <div class="sec-head">
+            <div><h3>Running</h3><p>Saída GPIO23: 24 V com a máquina rodando, 0 V durante as paradas</p></div>
+            <label class="switch"><input type="checkbox" id="p-running-on" data-k="running_enabled" aria-label="Ativar running"><span></span></label>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sec-head">
+            <div><h3>Qualidade</h3><p>Saída GPIO19: pulsos de refugo, cada um depois de um pulso de produção</p></div>
+            <label class="switch"><input type="checkbox" id="p-quality-on" data-k="quality_enabled" aria-label="Ativar qualidade"><span></span></label>
+          </div>
+          <div class="field" data-dep="p-quality-on">
+            <label for="p-reject">Pulsos de produção que viram refugo</label>
+            <div class="single"><input type="number" id="p-reject" data-k="reject_bp" data-s="100" step="0.1" min="0.01" max="100" inputmode="decimal"><span class="unit">%</span></div>
+          </div>
+          <div class="grid2" data-dep="p-quality-on">
+            <div class="field">
+              <label for="p-reject-delay">Atraso após o pulso</label>
+              <div class="single"><input type="number" id="p-reject-delay" data-k="reject_delay_ms" data-s="1" step="10" min="0" inputmode="numeric"><span class="unit">ms</span></div>
+            </div>
+            <div class="field">
+              <label for="p-reject-on">Largura do refugo</label>
+              <div class="single"><input type="number" id="p-reject-on" data-k="reject_on_us" data-s="1000" step="1" min="0.01" inputmode="decimal"><span class="unit">ms</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sec-head">
+            <div><h3>Stop report</h3><p>Saída GPIO18: paradas justificadas. Com ela em 24 V o sistema ignora os demais sinais, que continuam normalmente</p></div>
+            <label class="switch"><input type="checkbox" id="p-report-on" data-k="report_enabled" aria-label="Ativar stop report"><span></span></label>
+          </div>
+          <div class="field" data-dep="p-report-on">
+            <span class="flabel">Um report a cada</span>
+            <div class="pair">
+              <input type="number" id="p-report-every-min" data-k="report_every_min_s" data-s="60" min="1" inputmode="numeric" aria-label="Intervalo mínimo entre reports em minutos">
+              <em>a</em>
+              <input type="number" id="p-report-every-max" data-k="report_every_max_s" data-s="60" min="1" inputmode="numeric" aria-label="Intervalo máximo entre reports em minutos">
+              <span class="unit">min</span>
+            </div>
+          </div>
+          <div class="field" data-dep="p-report-on">
+            <span class="flabel">Duração de cada report</span>
+            <div class="pair">
+              <input type="number" id="p-report-len-min" data-k="report_len_min_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração mínima do report em minutos">
+              <em>a</em>
+              <input type="number" id="p-report-len-max" data-k="report_len_max_s" data-s="60" min="1" inputmode="numeric" aria-label="Duração máxima do report em minutos">
+              <span class="unit">min</span>
+            </div>
+          </div>
+        </div>
+
         <div class="err" id="profile-err" hidden></div>
         <div class="actions">
           <button class="btn" type="button" id="btn-save">Salvar</button>
@@ -415,7 +478,7 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
     <div class="card">
       <div class="row">
         <h2>Pulsos por hora</h2>
-        <div class="legend"><span><i style="background:var(--accent)"></i>válidos</span><span><i style="background:var(--idle)"></i>parada</span></div>
+        <div class="legend"><span><i style="background:var(--accent)"></i>válidos</span><span><i style="background:var(--idle)"></i>parada</span><span><i style="background:var(--report)"></i>report</span></div>
       </div>
       <svg class="chart" id="chart-hour" viewBox="0 0 340 140" role="img" aria-label="Pulsos válidos por hora"></svg>
     </div>
@@ -435,7 +498,7 @@ nav.tabs button[aria-selected=true] { color: var(--accent-ink); }
       </div>
       <div class="tbl-wrap">
         <table>
-          <thead><tr><th>Hora</th><th>Válidos</th><th>Ruído</th><th>Parado</th><th>Média</th></tr></thead>
+          <thead><tr><th>Hora</th><th>Válidos</th><th>Refugos</th><th>Ruído</th><th>Parado</th><th>Report</th><th>Média</th></tr></thead>
           <tbody id="intervals"></tbody>
         </table>
       </div>
@@ -486,7 +549,11 @@ const DEFAULT_PROFILE = {
   stops_enabled: true, stop_every_min_s: 3600, stop_every_max_s: 4 * 3600, stop_len_min_s: 300, stop_len_max_s: 1800,
   noise_enabled: true, noise_every_min_ms: 5000, noise_every_max_ms: 60000, noise_on_min_us: 50, noise_on_max_us: 500,
   noise_burst_min: 1, noise_burst_max: 3, noise_gap_us: 200, noise_guard_us: 10000,
+  running_enabled: true,
+  quality_enabled: true, reject_bp: 200, reject_delay_ms: 500, reject_on_us: 50000,
+  report_enabled: true, report_every_min_s: 4 * 3600, report_every_max_s: 8 * 3600, report_len_min_s: 600, report_len_max_s: 1800,
 };
+const LONG_MAX_S = 7 * 86400;
 const RATE_MIN_MHZ = 10, RATE_MAX_MHZ = 1000000;
 
 function validate(p) {
@@ -508,6 +575,18 @@ function validate(p) {
     if (p.noise_burst_min < 1 || p.noise_burst_min > p.noise_burst_max || p.noise_burst_max > 20) return 'Ruído: pulsos por rajada vão de 1 a 20, com o mínimo menor ou igual ao máximo.';
     const span = p.noise_burst_max * p.noise_on_max_us + (p.noise_burst_max - 1) * p.noise_gap_us;
     if (p.pulse_on_us + 2 * p.noise_guard_us + span >= periodMin) return 'O ruído não cabe entre os pulsos na frequência máxima. Diminua a largura do pulso, a rajada ou a distância dos pulsos.';
+  }
+  if (p.quality_enabled) {
+    if (p.reject_bp < 1 || p.reject_bp > 10000) return 'Qualidade: a taxa de refugo vai de 0,01 a 100 %.';
+    if (p.reject_delay_ms < 0 || p.reject_delay_ms > 60000) return 'Qualidade: o atraso do refugo vai de 0 a 60 s.';
+    if (p.reject_on_us < 10) return 'Qualidade: a largura do pulso de refugo deve ser de pelo menos 0,01 ms.';
+    if (p.reject_on_us >= periodMin) return `Qualidade: com ${hz(p.rate_max_mhz)} Hz o período é de ${nf.format(periodMin / 1000)} ms; a largura do refugo precisa ser menor que isso.`;
+  }
+  if (p.report_enabled) {
+    if (p.report_every_min_s < 60 || p.report_len_min_s < 60) return 'Stop report: use valores de pelo menos 1 minuto.';
+    if (p.report_every_max_s > LONG_MAX_S || p.report_len_max_s > LONG_MAX_S) return 'Stop report: use valores de até 7 dias.';
+    if (p.report_every_min_s > p.report_every_max_s) return 'Stop report: o intervalo mínimo está maior que o máximo.';
+    if (p.report_len_min_s > p.report_len_max_s) return 'Stop report: a duração mínima está maior que a máxima.';
   }
   return null;
 }
@@ -543,7 +622,25 @@ function simWave(p, dur, rnd) {
       n += span + uni(rnd, p.noise_every_min_ms, p.noise_every_max_ms) / 1000;
     }
   }
-  return { pulses, noise };
+  /* Refugos: parte dos pulsos de produção, depois do atraso */
+  const rejects = [];
+  if (p.quality_enabled) {
+    for (const [t] of pulses) if (rnd() < p.reject_bp / 10000) rejects.push([t + p.reject_delay_ms / 1000, p.reject_on_us / 1e6]);
+  }
+  return { pulses, noise, rejects };
+}
+
+/* Janelas [início, fim) sorteadas em sequência, como as paradas e o stop report do firmware */
+function simWindows(rnd, enabled, eMin, eMax, lMin, lMax, until) {
+  const w = [];
+  if (!enabled) return w;
+  let t = uni(rnd, eMin, eMax);
+  while (t < until) {
+    const len = uni(rnd, lMin, lMax);
+    w.push([t, Math.min(until, t + len)]);
+    t += len + uni(rnd, eMin, eMax);
+  }
+  return w;
 }
 
 /* 24 h: ritmo base de cada período e paradas */
@@ -552,21 +649,16 @@ function simDay(p, rnd) {
   const regimes = [], stops = [];
   const step = p.regime_s > 0 && lo !== hi ? p.regime_s : DAY;
   for (let t = 0; t < DAY; t += step) regimes.push([t, Math.min(DAY, t + step), p.regime_s > 0 ? uni(rnd, lo, hi) : (lo + hi) / 2]);
-  if (p.stops_enabled) {
-    let t = uni(rnd, p.stop_every_min_s, p.stop_every_max_s);
-    while (t < DAY) {
-      const len = uni(rnd, p.stop_len_min_s, p.stop_len_max_s);
-      stops.push([t, Math.min(DAY, t + len)]);
-      t += len + uni(rnd, p.stop_every_min_s, p.stop_every_max_s);
-    }
-  }
+  stops.push(...simWindows(rnd, p.stops_enabled, p.stop_every_min_s, p.stop_every_max_s, p.stop_len_min_s, p.stop_len_max_s, DAY));
+  const reports = simWindows(rnd, p.report_enabled, p.report_every_min_s, p.report_every_max_s, p.report_len_min_s, p.report_len_max_s, DAY);
   let pulses = 0;
   for (const [a, b, f] of regimes) {
     let run = b - a;
     for (const [sa, sb] of stops) run -= Math.max(0, Math.min(b, sb) - Math.max(a, sa));
     pulses += run * f;
   }
-  return { regimes, stops, pulses };
+  const rejects = p.quality_enabled ? pulses * p.reject_bp / 10000 : 0;
+  return { regimes, stops, reports, pulses, rejects };
 }
 
 /* ---------- Modo demonstração: imita a API do gerador ---------- */
@@ -579,11 +671,15 @@ const demo = {
     this.startedAt = now - (3 * 86400 + 4 * 3600 + 12 * 60 + 31);
     this.base = 5.3; this.regimeEnd = now + 1500;
     this.machineStopUntil = 0; this.nextStop = now + 2400;
+    this.reportUntil = 0; this.nextReport = now + 900;
+    this.rejects = 0; this.validRep = 0; this.rejectsRep = 0; this.reports = 0; this.rejCarry = 0;
+    this.rejMin = [];
     this.perMin = []; this.noiseMin = [];
     for (let i = 0; i < 60; i++) {
       const stopped = i >= 18 && i < 31;
       this.perMin.push(stopped ? 0 : Math.round(this.base * 60 * uni(this.rnd, .85, 1.15)));
       this.noiseMin.push(this.rnd() < .25 ? 1 + Math.floor(this.rnd() * 3) : 0);
+      this.rejMin.push(stopped ? 0 : Math.round(this.perMin[i] * .02 * uni(this.rnd, 0, 2)));
     }
     this.hist = [];
     let valid = 0, noise = 0, stops = 0;
@@ -592,16 +688,21 @@ const demo = {
       const base = uni(this.rnd, 1.5, 7.5);
       const stopS = this.rnd() < .3 ? Math.round(uni(this.rnd, 300, 1800)) : 0;
       if (stopS) stops++;
-      const v = Math.round(base * (3600 - stopS)), n = Math.round(uni(this.rnd, 60, 300));
-      valid += v; noise += n;
-      this.hist.push({ t: h, ok: 1, dur: 3600, valid: v, noise: n, stop_s: stopS });
+      const repS = this.rnd() < .15 ? Math.round(uni(this.rnd, 600, 1800)) : 0;
+      if (repS) this.reports++;
+      const all = Math.round(base * (3600 - stopS)), vr = Math.round(all * repS / 3600), v = all - vr;
+      const rj = Math.round(all * .02), rjr = Math.round(rj * repS / 3600);
+      const n = Math.round(uni(this.rnd, 60, 300));
+      valid += v; noise += n; this.validRep += vr; this.rejects += rj - rjr; this.rejectsRep += rjr;
+      this.hist.push({ t: h, ok: 1, dur: 3600, valid: v, noise: n, stop_s: stopS, stops: stopS ? 1 : 0,
+        rejects: rj - rjr, valid_rep: vr, rejects_rep: rjr, report_s: repS, reports: repS ? 1 : 0 });
     }
     this.valid = valid + 4 * 1800; this.noise = noise + 61; this.stops = stops;
     this.carry = 0; this.last = now; this.minStart = now;
     const ev = (dt, type, extra) => ({ t: this.startedAt + dt, type, ...extra });
     this.events = [
       ev(0, 'start'),
-      ev(26 * 3600 + 610, 'check', { value: 401220, expected: 401220 }),
+      ev(26 * 3600 + 610, 'check', { value: 401220, expected: 401220, rej_value: 8031, rej_expected: 8031 }),
       ev(49 * 3600 + 120, 'power', { off_s: 47 }),
       ev(52 * 3600 + 2200, 'check', { value: 752031, expected: 752034 }),
     ];
@@ -615,11 +716,23 @@ const demo = {
       this.machineStopUntil = now + 90; this.stops++;
     }
     if (this.machineStopUntil && now > this.machineStopUntil) { this.machineStopUntil = 0; this.nextStop = now + 600; }
+    if (this.p.report_enabled && now > this.nextReport && !this.reportUntil) { this.reportUntil = now + 120; this.reports++; }
+    if (this.reportUntil && now > this.reportUntil) { this.reportUntil = 0; this.nextReport = now + 900; }
     let n = 0;
     if (!this.machineStopUntil) { this.carry += this.base * dt; n = Math.floor(this.carry); this.carry -= n; }
-    this.valid += n; this.perMin[59] += n;
+    if (this.reportUntil) this.validRep += n; else this.valid += n;
+    this.perMin[59] += n;
+    if (this.p.quality_enabled) {
+      this.rejCarry += n * this.p.reject_bp / 10000;
+      const r = Math.floor(this.rejCarry); this.rejCarry -= r;
+      if (this.reportUntil) this.rejectsRep += r; else this.rejects += r;
+      this.rejMin[59] += r;
+    }
     if (this.p.noise_enabled && this.rnd() < dt / 20) { this.noise++; this.noiseMin[59]++; }
-    if (now - this.minStart >= 60) { this.minStart = now; this.perMin.shift(); this.perMin.push(0); this.noiseMin.shift(); this.noiseMin.push(0); }
+    if (now - this.minStart >= 60) {
+      this.minStart = now;
+      for (const a of [this.perMin, this.noiseMin, this.rejMin]) { a.shift(); a.push(0); }
+    }
   },
   status() {
     this.tick();
@@ -630,7 +743,9 @@ const demo = {
       valid: this.valid, noise: this.noise, stops: this.stops,
       machine: this.machineStopUntil ? 'stop' : 'run', stop_left_s: this.machineStopUntil ? Math.round(this.machineStopUntil - now) : 0,
       rate_mhz: this.machineStopUntil ? 0 : Math.round(this.base * 1000),
-      per_min: this.perMin.slice(), noise_per_min: this.noiseMin.slice(),
+      per_min: this.perMin.slice(), noise_per_min: this.noiseMin.slice(), rejects_per_min: this.rejMin.slice(),
+      rejects: this.rejects, valid_rep: this.validRep, rejects_rep: this.rejectsRep, reports: this.reports,
+      report: !!this.reportUntil, report_left_s: this.reportUntil ? Math.round(this.reportUntil - now) : 0,
     };
   },
   handle(path, body) {
@@ -642,13 +757,15 @@ const demo = {
         return { ...this.p };
       case 'start':
         this.init(); this.startedAt = now; this.valid = this.noise = this.stops = 0; this.hist = [];
-        this.perMin = Array(60).fill(0); this.noiseMin = Array(60).fill(0);
+        this.rejects = this.validRep = this.rejectsRep = this.reports = 0;
+        this.perMin = Array(60).fill(0); this.noiseMin = Array(60).fill(0); this.rejMin = Array(60).fill(0);
         this.events = [{ t: now, type: 'start' }]; this.running = true;
         return {};
       case 'stop': this.running = false; this.events.push({ t: now, type: 'stop' }); return {};
       case 'check': {
         this.tick();
         const e = { t: now, type: 'check', value: body.value, expected: this.valid };
+        if (body.rejects != null) { e.rej_value = body.rejects; e.rej_expected = this.rejects; }
         this.events.push(e); return e;
       }
       case 'history': return { intervals: this.hist.slice(-48), events: this.events.slice() };
@@ -692,20 +809,26 @@ function renderStatus() {
   $('#d-valid').textContent = nf.format(s.valid);
   $('#d-noise').textContent = nf.format(s.noise);
   $('#d-stops').textContent = nf.format(s.stops);
+  $('#d-rejects').textContent = nf.format(s.rejects || 0);
+  $('#d-reports').textContent = nf.format(s.reports || 0);
   $('#s-elapsed').textContent = s.running || s.elapsed_s ? fmtDur(s.elapsed_s) : '–';
   $('#s-rate').textContent = s.running && s.rate_mhz ? hz(s.rate_mhz) + ' Hz' : '–';
   const m = $('#s-machine');
   m.className = s.running && s.machine === 'stop' ? 'stopped' : '';
   m.textContent = !s.running ? '–' : s.machine === 'stop' ? 'Parada ' + fmtDur(s.stop_left_s).slice(3) : 'Produzindo';
   $('#s-start').textContent = s.started_at ? fmtWhen(s.started_at, true) : '–';
+  const rp = $('#s-report');
+  rp.className = s.running && s.report ? 'report' : '';
+  rp.textContent = !s.running ? '–' : s.report ? 'Ativo ' + fmtDur(s.report_left_s).slice(3) : 'Inativo';
+  $('#s-rep-sent').textContent = s.running || s.elapsed_s ? nf.format(s.valid_rep || 0) + ' / ' + nf.format(s.rejects_rep || 0) : '–';
   $('#btn-start').hidden = s.running;
   $('#btn-stop').hidden = !s.running;
   $('#running-note').hidden = !s.running;
   $('#profile-fields').disabled = !!s.running;
-  drawMinuteChart(s.per_min || [], s.noise_per_min || []);
+  drawMinuteChart(s.per_min || [], s.noise_per_min || [], s.rejects_per_min || []);
 }
 
-function drawMinuteChart(v, nz) {
+function drawMinuteChart(v, nz, rj) {
   const W = 340, H = 120, top = 8, bot = 18, left = 30, n = 60;
   const max = Math.max(10, ...v);
   const nice = Math.ceil(max / 10 ** Math.floor(Math.log10(max)) ) * 10 ** Math.floor(Math.log10(max));
@@ -715,7 +838,9 @@ function drawMinuteChart(v, nz) {
   v.forEach((val, i) => {
     const x = left + i * bw + 0.6, h = Math.max(0, y(0) - y(val));
     s += `<rect x="${x.toFixed(1)}" y="${(y(0) - h).toFixed(1)}" width="${(bw - 1.2).toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${i === n - 1 ? 'var(--accent-ink)' : 'var(--accent)'}"/>`;
-    if (nz[i]) s += `<circle cx="${(x + bw / 2 - 0.6).toFixed(1)}" cy="${(y(0) - h - 5).toFixed(1)}" r="2.2" fill="var(--noise)"/>`;
+    const cx = (x + bw / 2 - 0.6).toFixed(1);
+    if (rj[i]) s += `<circle cx="${cx}" cy="${(y(0) - h - 5).toFixed(1)}" r="2.2" fill="var(--reject)"/>`;
+    if (nz[i]) s += `<circle cx="${cx}" cy="${(y(0) - h - (rj[i] ? 11 : 5)).toFixed(1)}" r="2.2" fill="var(--noise)"/>`;
     if (val === 0 && v.length) s += `<rect x="${x.toFixed(1)}" y="${y(0) - 2}" width="${(bw - 1.2).toFixed(1)}" height="2" fill="var(--idle)"/>`;
   });
   s += `<text x="${left}" y="${H - 4}">-60 min</text><text x="${left + (W - left) / 2}" y="${H - 4}" text-anchor="middle">-30</text><text x="${W}" y="${H - 4}" text-anchor="end">agora</text>`;
@@ -757,15 +882,22 @@ $('#check-form').addEventListener('submit', async e => {
   e.preventDefault();
   const v = parseInt($('#check-value').value, 10);
   if (!(v >= 0)) { toast('Digite o valor mostrado no contador.'); return; }
+  const body = { value: v }, rs = $('#check-rejects').value.trim();
+  if (rs !== '') {
+    const r = parseInt(rs, 10);
+    if (!(r >= 0)) { toast('Digite os refugos mostrados no contador, ou deixe em branco.'); return; }
+    body.rejects = r;
+  }
+  const line = (diff, expected, what) => diff === 0
+    ? `<div class="result ok"><b>✓ 0</b><span>Bate com os ${nf.format(expected)} ${what} enviados.</span></div>`
+    : `<div class="result bad"><b>${diff > 0 ? '+' : ''}${nf.format(diff)}</b><span>O gerador enviou ${nf.format(expected)} ${what}; o contador ${diff > 0 ? 'contou a mais' : 'perdeu ' + what}.</span></div>`;
   try {
-    const r = await api('check', { value: v });
-    const diff = r.value - r.expected, el = $('#check-result');
+    const r = await api('check', body);
+    const el = $('#check-result');
     el.hidden = false;
-    el.className = 'result ' + (diff === 0 ? 'ok' : 'bad');
-    el.innerHTML = diff === 0
-      ? `<b>✓ 0</b><span>Bate com os ${nf.format(r.expected)} pulsos enviados.</span>`
-      : `<b>${diff > 0 ? '+' : ''}${nf.format(diff)}</b><span>O gerador enviou ${nf.format(r.expected)}; o contador ${diff > 0 ? 'contou a mais' : 'perdeu pulsos'}.</span>`;
-    $('#check-value').value = '';
+    el.innerHTML = line(r.value - r.expected, r.expected, 'pulsos') +
+      (r.rej_value != null ? line(r.rej_value - r.rej_expected, r.rej_expected, 'refugos') : '');
+    $('#check-value').value = $('#check-rejects').value = '';
   } catch (err) { toast(err.message); }
 });
 
@@ -880,24 +1012,31 @@ function drawPreview() {
   const day = simDay(p, mulberry32(seed * 977));
   $('#est-day').textContent = nf.format(Math.round(day.pulses));
   $('#est-hour').textContent = nf.format(Math.round(day.pulses / 24));
+  $('#est-rej').textContent = nf.format(Math.round(day.rejects));
+  $('#est-rej-wrap').hidden = !p.quality_enabled;
   if (validate(p)) {
     g.fillStyle = css('--muted'); g.textAlign = 'center';
     g.fillText('Corrija o perfil para ver a prévia', W / 2, H / 2);
     return;
   }
   if (previewWin === 'day') return drawDay(g, W, H, p, day);
-  const dur = +previewWin, { pulses, noise } = simWave(p, dur, mulberry32(seed));
-  const L = 6, R = W - 6, x = t => L + (R - L) * t / dur, base = H - 26, top = 22;
+  const dur = +previewWin, { pulses, noise, rejects } = simWave(p, dur, mulberry32(seed));
+  // Com qualidade, a faixa de baixo mostra os refugos
+  const L = 6, R = W - 6, x = t => L + (R - L) * t / dur, qbase = H - 26, qh = p.quality_enabled ? 30 : 0;
+  const base = qbase - qh, top = 22;
   g.strokeStyle = css('--line'); g.lineWidth = 1;
   g.beginPath(); g.moveTo(L, base + .5); g.lineTo(R, base + .5); g.stroke();
+  if (qh) { g.beginPath(); g.moveTo(L, qbase + .5); g.lineTo(R, qbase + .5); g.stroke(); }
   g.fillStyle = css('--muted'); g.textAlign = 'left';
   for (let s = 0; s <= dur; s += dur / 5) { g.fillText(s + ' s', Math.min(x(s), R - 22), H - 8); }
   g.fillStyle = css('--accent');
   for (const [t, w] of pulses) { const a = x(t); g.fillRect(a, top, Math.max(1.5, x(t + w) - a), base - top); }
   g.fillStyle = css('--noise');
   for (const [t, w] of noise) { const a = x(t); g.fillRect(a, top + 30, Math.max(1.5, x(t + w) - a), base - top - 30); }
+  g.fillStyle = css('--reject');
+  for (const [t, w] of rejects) { if (t >= dur) continue; const a = x(t); g.fillRect(a, base + 8, Math.max(1.5, x(Math.min(dur, t + w)) - a), qh - 8); }
   g.textAlign = 'right'; g.fillStyle = css('--muted');
-  g.fillText(`${pulses.length} pulsos · ${noise.length} ruídos`, R, 13);
+  g.fillText(`${pulses.length} pulsos · ${noise.length} ruídos` + (qh ? ` · ${rejects.filter(([t]) => t < dur).length} refugos` : ''), R, 13);
 }
 
 function drawDay(g, W, H, p, day) {
@@ -914,6 +1053,8 @@ function drawDay(g, W, H, p, day) {
   for (let h = 0; h <= 24; h += 6) g.fillText(h + 'h', Math.min(Math.max(x(h * 3600), L + 8), R - 8), H - 6);
   g.fillStyle = css('--idle'); g.globalAlpha = .35;
   for (const [a, b] of day.stops) g.fillRect(x(a), top, Math.max(2, x(b) - x(a)), base - top);
+  g.globalAlpha = .8; g.fillStyle = css('--report');
+  for (const [a, b] of day.reports) g.fillRect(x(a), base - 5, Math.max(2, x(b) - x(a)), 5);
   g.globalAlpha = .22; g.fillStyle = css('--accent');
   const lo = p.rate_min_mhz / 1000;
   for (const [a, b, f] of day.regimes) {
@@ -950,6 +1091,10 @@ function renderHistory() {
     const x = left + i * bw + 1, h = y(0) - y(r.valid), stopH = (H - top - bot) * r.stop_s / (r.dur || 3600);
     s += `<rect x="${x.toFixed(1)}" y="${(y(0) - h).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--accent)"/>`;
     if (r.stop_s) s += `<rect x="${x.toFixed(1)}" y="${top}" width="${(bw - 2).toFixed(1)}" height="${stopH.toFixed(1)}" rx="1.5" fill="var(--idle)" opacity=".55"/>`;
+    if (r.report_s) {
+      const repH = (H - top - bot) * r.report_s / (r.dur || 3600);
+      s += `<rect x="${x.toFixed(1)}" y="${(top + (r.stop_s ? stopH : 0)).toFixed(1)}" width="${(bw - 2).toFixed(1)}" height="${repH.toFixed(1)}" rx="1.5" fill="var(--report)" opacity=".55"/>`;
+    }
     if (i % 6 === 0) s += `<text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle">${fmtWhen(r.t)}</text>`;
   });
   if (!last.length) s += `<text x="${W / 2}" y="${H / 2}" text-anchor="middle">O primeiro intervalo aparece depois de uma hora de teste</text>`;
@@ -961,18 +1106,21 @@ function renderHistory() {
   $('#events').innerHTML = (history.events || []).slice().reverse().map(e => {
     let tag = '', sub = '';
     if (e.type === 'check') {
-      const d = e.value - e.expected;
-      tag = `<span class="tag ${d === 0 ? 'ok' : 'bad'}">${d === 0 ? '✓ 0' : (d > 0 ? '+' : '') + nf.format(d)}</span>`;
+      const d = e.value - e.expected, dr = e.rej_value != null ? e.rej_value - e.rej_expected : 0;
+      const ok = d === 0 && dr === 0;
+      tag = `<span class="tag ${ok ? 'ok' : 'bad'}">${d === 0 ? '✓ 0' : (d > 0 ? '+' : '') + nf.format(d)}</span>`;
       sub = `contador ${nf.format(e.value)} · enviados ${nf.format(e.expected)}`;
+      if (e.rej_value != null) sub += `<br>refugos ${nf.format(e.rej_value)} · enviados ${nf.format(e.rej_expected)}` + (dr ? ` (${dr > 0 ? '+' : ''}${nf.format(dr)})` : ' ✓');
     }
     if (e.type === 'power') sub = (e.off_s == null ? 'duração desconhecida até a hora ser confirmada' : `desligado por ${fmtDur(e.off_s)}`) + '; contagem retomada';
-    if (e.type === 'stop' && e.valid != null) sub = `${nf.format(e.valid)} pulsos válidos enviados`;
+    if (e.type === 'stop' && e.valid != null) sub = `${nf.format(e.valid)} pulsos válidos` + (e.rejects ? ` e ${nf.format(e.rejects)} refugos` : '') + ' enviados';
     return `<li><time>${when(e, true).replace(' ', '<br>')}</time><div>${names[e.type] || e.type}${sub ? `<small>${sub}</small>` : ''}</div>${tag}</li>`;
   }).join('') || '<li><div class="note">Nenhum evento ainda.</div></li>';
 
   $('#intervals').innerHTML = iv.slice().reverse().map(r => {
-    const active = Math.max(1, (r.dur || 3600) - r.stop_s);
-    return `<tr><td>${when(r, true)}</td><td>${nf.format(r.valid)}</td><td>${nf.format(r.noise)}</td><td>${r.stop_s ? Math.round(r.stop_s / 60) + ' min' : '–'}</td><td>${(r.valid / active).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Hz</td></tr>`;
+    const active = Math.max(1, (r.dur || 3600) - r.stop_s), min = v => v ? Math.round(v / 60) + ' min' : '–';
+    const prod = r.valid + (r.valid_rep || 0);
+    return `<tr><td>${when(r, true)}</td><td>${nf.format(r.valid)}</td><td>${nf.format(r.rejects || 0)}</td><td>${nf.format(r.noise)}</td><td>${min(r.stop_s)}</td><td>${min(r.report_s)}</td><td>${(prod / active).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} Hz</td></tr>`;
   }).join('');
 }
 for (const a of $$('.csv-link')) a.addEventListener('click', e => { if (DEMO) { e.preventDefault(); toast('A exportação funciona conectado ao gerador.'); } });

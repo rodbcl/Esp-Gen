@@ -324,15 +324,18 @@ void automation_set_time(uint32_t epoch, int32_t tz_min)
     xSemaphoreGive(s_mtx);
 }
 
-const char *automation_check(uint64_t counter_value, uint64_t *expected)
+const char *automation_check(uint64_t counter_value, const uint64_t *rej_value, uint64_t *expected,
+                             uint64_t *rej_expected)
 {
     const char *err = NULL;
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     if (!s_running && s_elapsed_base == 0) {
         err = "Nenhum teste em andamento para conferir.";
     } else {
-        *expected = tally_get().valid;
-        history_check(counter_value, *expected, NULL, 0);
+        tally_t t = tally_get();
+        *expected = t.valid;
+        *rej_expected = t.rejects;
+        history_check(counter_value, *expected, rej_value, *rej_expected);
     }
     xSemaphoreGive(s_mtx);
     return err;

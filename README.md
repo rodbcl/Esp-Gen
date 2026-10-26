@@ -12,7 +12,7 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
   - **Tempo**: gera durante `mm:ss`, até 60 min
   - **Quantidade**: gera N pulsos, até 10.000
   - **Contínuo**: gera até ser interrompido; frequência e duty podem ser alterados **durante** a geração (nos outros modos ficam fixos enquanto gera)
-  - **Automação**: testes de dias ou semanas que imitam uma máquina real (ritmo variável, paradas e ruído), configurados por uma página web no celular. Veja [Modo Automação](#modo-automação)
+  - **Automação**: testes de dias ou semanas que imitam uma máquina real (ritmo variável, paradas, ruído, refugos e paradas justificadas), configurados por uma página web no celular. Veja [Modo Automação](#modo-automação)
 - **Encoder com aceleração**: quanto mais rápido você gira, maior o passo (x1 → x10 → x100)
 - **Configurações salvas na NVS**: os valores voltam iguais depois de desligar
 - **Endereço do LCD detectado automaticamente** (PCF8574 em 0x20–0x27 ou PCF8574A em 0x38–0x3F)
@@ -26,7 +26,10 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 | LCD 16x2 I2C (PCF8574), via level shifter | SDA = GPIO21, SCL = GPIO22 |
 | Encoder KY-040 | CLK = GPIO32, DT = GPIO33, SW = GPIO25 |
 | Botão START/STOP (ativo em 0) | GPIO26 |
-| Saída de pulsos | GPIO27 |
+| Saída de pulsos (performance) | GPIO27 |
+| Running (Automação) | GPIO23 |
+| Qualidade (Automação) | GPIO19 |
+| Stop report (Automação) | GPIO18 |
 
 ### Alimentação
 
@@ -39,6 +42,8 @@ GPIO27 ──► Q1 (BC547) ──► push-pull Q2/Q3 ──► PULSO (24 V)
 ```
 
 O Q1 **inverte** o sinal: GPIO27 em nível alto deixa a saída em 0 V. O firmware compensa isso com o `invert_out` do RMT (`PULSE_INVERTED` em [board.h](main/board.h)).
+
+As saídas GPIO23, GPIO19 e GPIO18 usam o mesmo estágio (`OUT_INVERTED`). Todas são configuradas logo no boot, ainda em 0 V.
 
 ## Uso
 
@@ -81,12 +86,16 @@ EspGen-3F2A
 
 A configuração do teste (faixa de frequência, largura do pulso, paradas, ruído) e o início/fim do teste são feitos pela página. Com um teste rodando, o LCD mostra os pulsos válidos enviados e alterna entre ritmo atual (ou parada), tempo de teste e nome do AP.
 
-- **Contabilidade**: o gerador soma separadamente os **pulsos válidos** (o que o contador deve mostrar) e os **ruídos** injetados (que o contador não deve contar)
+- **Saídas extras**, cada uma com a sua chave no perfil (desligada = 0 V o teste todo):
+  - **Running** (GPIO23): 24 V com a máquina rodando, 0 V durante as paradas. Nenhum pulso de produção sai com a máquina parada
+  - **Qualidade** (GPIO19): uma % dos pulsos de produção vira refugo; o pulso de refugo sai um atraso configurável depois do pulso de produção
+  - **Stop report** (GPIO18): paradas justificadas, com intervalo e duração sorteados, independentes das paradas da máquina. Com ele em 24 V o sistema ignora os demais sinais, que continuam normalmente
+- **Contabilidade**: o gerador soma separadamente os **pulsos válidos** (o que o contador deve mostrar), os **refugos**, os **ruídos** injetados (que o contador não deve contar) e o que foi enviado com o **stop report** ativo (fica fora do esperado na conferência)
 - **Segurar START por 2 s** interrompe o teste, desliga o Wi-Fi e volta ao menu no modo anterior
 - **Queda de energia**: o estado é gravado a cada segundo; ao religar, o gerador volta sozinho para a Automação e retoma o teste com a contagem salva. A hora fica "não confirmada" (`≈` na página) até a página ser aberta de novo; aí o histórico é corrigido e a queda ganha a duração real
-- **Histórico**: um intervalo por hora de teste (pulsos válidos, ruídos, paradas, tempo parado, frequência média) e os eventos (início, fim, quedas de energia, conferências), guardados na flash por até ~11 meses de teste
+- **Histórico**: um intervalo por hora de teste (pulsos válidos, refugos, ruídos, paradas, tempo parado, enviados e tempo em stop report, frequência média) e os eventos (início, fim, quedas de energia, conferências), guardados na flash por até ~11 meses de teste
 - **CSVs** (aba Histórico): `espgen-intervalos.csv` e `espgen-eventos.csv`, com `;` e vírgula decimal, prontos para o Excel em português, em hora local do celular
-- **Conferir contador**: digite o valor do display do contador; a diferença para os pulsos enviados fica registrada nos eventos
+- **Conferir contador**: digite o valor do display do contador (e, opcionalmente, os refugos); a diferença para o que foi enviado fora do stop report fica registrada nos eventos
 
 A página é servida pelo próprio ESP ([web/index.html](main/web/index.html), comprimida no build por [web/pack.py](main/web/pack.py)) e não usa nada da internet.
 
@@ -100,7 +109,7 @@ idf.py build
 idf.py -p /dev/ttyUSB0 flash monitor
 ```
 
-A tabela de partições é própria ([partitions.csv](partitions.csv)): app de 1,5 MB, `autostate` (estado da Automação, 64 KB) e `history` (histórico dos testes, 256 KB). Ao atualizar de uma versão sem ela, grave com `idf.py flash` completo (não só o app).
+A tabela de partições é própria ([partitions.csv](partitions.csv)): app de 1,5 MB, `autostate` (estado da Automação, 64 KB) e `history` (histórico dos testes, 512 KB). Ao atualizar de uma versão com outra tabela, grave com `idf.py flash` completo (não só o app). A versão com as saídas extras mudou o formato dos registros: o estado e o histórico anteriores são apagados na primeira inicialização.
 
 ## Ajustes
 
@@ -123,8 +132,9 @@ main/
 ├── ui.c / .h         # Máquina de estados do menu, telas e loop da interface
 ├── run.c / .h        # Execução da geração conforme o modo (Tempo, Qtde, Contínuo)
 ├── automation.c / .h # Modo Automação: AP, perfil, início/fim do teste, retomada
-├── auto_gen.c / .h   # Simulador de máquina: ritmo, paradas e ruído (fonte do pulse_gen)
-├── tally.c / .h      # Contabilidade: pulsos válidos, ruídos e paradas
+├── auto_gen.c / .h   # Simulador de máquina: ritmo, paradas, ruído, refugos e stop report (fontes do rmt_out)
+├── auto_out.c / .h   # Saídas extras da Automação: running, qualidade e stop report
+├── tally.c / .h      # Contabilidade: pulsos válidos, refugos, ruídos, paradas e stop report
 ├── state_log.c / .h  # Estado do teste gravado em anel na partição autostate
 ├── history.c / .h    # Histórico (intervalos e eventos), gráfico da última hora e CSVs
 ├── ringlog.c / .h    # Registro em anel genérico na flash (usado por state_log e history)
@@ -137,11 +147,12 @@ main/
 ├── screen.c / .h     # Buffer da tela: envia ao LCD só as linhas que mudaram
 ├── encoder.c / .h    # Encoder rotativo via PCNT, com aceleração
 ├── button.c / .h     # Botões com debounce e pressão longa
-├── pulse_gen.c / .h  # Gerador de pulsos via RMT com encoder em streaming
+├── pulse_gen.c / .h  # Gerador de pulsos da saída principal (fonte de frequência fixa)
+├── rmt_out.c / .h    # Canal RMT com encoder em streaming (um por saída)
 ├── lcd_i2c.c / .h    # Driver HD44780 + PCF8574 (modo 4 bits)
 └── util.h            # Funções auxiliares (clamp)
 ```
 
 ### Como funciona o gerador
 
-O `pulse_gen` usa um **RMT simple encoder** que monta os símbolos sob demanda, enquanto a transmissão acontece. Cada trecho (nível e duração) vem de uma **fonte**: a de frequência fixa, usada pelos modos Tempo, Qtde e Contínuo, ou o simulador de máquina (`auto_gen`) da Automação. O caminho da interrupção roda da IRAM (`CONFIG_RMT_ISR_IRAM_SAFE`), para que gravações na flash não atrasem a recarga do RMT. Por isso trens de pulsos com milhões de períodos funcionam sem ocupar RAM. Quando o período não é múltiplo exato do tick de 0,1 µs, o resto é distribuído por um acumulador, de modo que a frequência média fica exata. Cada meio-símbolo dura no máximo 200 µs, e assim um STOP esvazia a memória do RMT em poucos milissegundos.
+Cada saída é um canal `rmt_out`, que usa um **RMT simple encoder** para montar os símbolos sob demanda, enquanto a transmissão acontece. Cada trecho (nível e duração) vem de uma **fonte**: a de frequência fixa do `pulse_gen`, usada pelos modos Tempo, Qtde e Contínuo, ou o simulador de máquina (`auto_gen`) da Automação, que tem uma fonte para cada saída. Cada parte da simulação sorteia numa sequência própria a partir da mesma semente, então as fontes de running, qualidade e stop report refazem as mesmas paradas e os mesmos pulsos da produção sem depender uma da outra, e todas seguem a mesma linha do tempo. O caminho da interrupção roda da IRAM (`CONFIG_RMT_ISR_IRAM_SAFE`), para que gravações na flash não atrasem a recarga do RMT. Por isso trens de pulsos com milhões de períodos funcionam sem ocupar RAM. Quando o período não é múltiplo exato do tick de 0,1 µs, o resto é distribuído por um acumulador, de modo que a frequência média fica exata. Cada meio-símbolo dura no máximo 200 µs, e assim um STOP esvazia a memória do RMT em poucos milissegundos.
