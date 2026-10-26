@@ -4,6 +4,8 @@ Gerador de pulsos para bancada, feito com ESP32. A frequência e o duty cycle s�
 
 Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por software. Por isso o sinal tem timing exato, e o número de períodos gerados é exatamente o que foi pedido, mesmo em frequências altas.
 
+
+
 ## Recursos
 
 - **Frequência** de 1 Hz a 10 kHz
@@ -19,7 +21,7 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 - **Botão START/STOP**: toque para iniciar; **segure por 2 s** para interromper a qualquer momento, em qualquer modo (toques curtos durante a geração são ignorados). A tela mostra a contagem regressiva ou o progresso
 - **Saída segura no boot**: o pino de pulso é configurado como desligado antes de qualquer outra inicialização
 
-## Hardware
+### Esquema elétrico
 
 | Componente | Pino ESP32 |
 |---|---|
@@ -30,6 +32,7 @@ Os pulsos saem do periférico **RMT** do ESP32, sem bit-banging nem timers por s
 | Running (Automação) | GPIO23 |
 | Qualidade (Automação) | GPIO19 |
 | Stop report (Automação) | GPIO18 |
+O esquema elétrico completo não está publicado neste repositório. Para obtê-lo, entre em contato pelo e-mail [rodrigob1706@icloud.com](mailto:rodrigob1706@icloud.com).
 
 ### Alimentação
 
