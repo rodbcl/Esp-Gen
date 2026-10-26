@@ -107,6 +107,10 @@ static state_rec_t current_rec(void)
         .stops = t.stops > UINT16_MAX ? UINT16_MAX : t.stops,
         .valid = t.valid,
         .noise = (uint32_t)t.noise,
+        .rejects = t.rejects,
+        .valid_rep = t.valid_rep,
+        .rejects_rep = (uint32_t)t.rejects_rep,
+        .reports = t.reports > UINT16_MAX ? UINT16_MAX : t.reports,
         .elapsed_s = elapsed_s(),
         .epoch = wallclock_now(),
     };
@@ -146,7 +150,10 @@ static void resume_test(void)
     if (r->epoch) {
         wallclock_set(r->epoch, false);
     }
-    tally_t t = { .valid = r->valid, .noise = r->noise, .stops = r->stops };
+    tally_t t = {
+        .valid = r->valid, .noise = r->noise, .stops = r->stops, .rejects = r->rejects,
+        .valid_rep = r->valid_rep, .rejects_rep = r->rejects_rep, .reports = r->reports,
+    };
     tally_reset(&t);
     s_elapsed_base = r->elapsed_s;
     history_power_resumed(&t, r->elapsed_s, r->time_ok);
@@ -179,10 +186,12 @@ static void save_task(void *arg)
         bool running = s_running;
         tally_t t = tally_get();
         uint32_t elapsed = elapsed_s();
-        bool stopped = running && auto_gen_status().stopped;
+        auto_gen_status_t gen = running ? auto_gen_status() : (auto_gen_status_t) { 0 };
         if (running) {
             state_rec_t rec = current_rec();
-            bool changed = rec.valid != s_saved.valid || rec.noise != s_saved.noise || rec.stops != s_saved.stops;
+            bool changed = rec.valid != s_saved.valid || rec.noise != s_saved.noise || rec.stops != s_saved.stops ||
+                           rec.rejects != s_saved.rejects || rec.valid_rep != s_saved.valid_rep ||
+                           rec.rejects_rep != s_saved.rejects_rep || rec.reports != s_saved.reports;
             if (changed || esp_timer_get_time() - s_saved_us >= SAVE_IDLE_S * 1000000LL) {
                 save_state();
             }
@@ -190,7 +199,7 @@ static void save_task(void *arg)
         xSemaphoreGive(s_mtx);
         // Fora da trava: a leitura do histórico pelo servidor pode demorar
         if (running) {
-            history_tick(&t, elapsed, stopped);
+            history_tick(&t, elapsed, gen.stopped, gen.report);
         }
     }
 }
@@ -323,7 +332,7 @@ const char *automation_check(uint64_t counter_value, uint64_t *expected)
         err = "Nenhum teste em andamento para conferir.";
     } else {
         *expected = tally_get().valid;
-        history_check(counter_value, *expected);
+        history_check(counter_value, *expected, NULL, 0);
     }
     xSemaphoreGive(s_mtx);
     return err;

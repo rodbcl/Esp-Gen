@@ -12,7 +12,7 @@
  * Não é thread-safe: quem usa deve serializar o acesso.
  */
 
-#define RINGLOG_DATA    24
+#define RINGLOG_DATA    56
 
 typedef struct {
     const esp_partition_t *part;

@@ -140,8 +140,8 @@ static esp_err_t page_get(httpd_req_t *req)
 static esp_err_t status_get(httpd_req_t *req)
 {
     automation_status_t st = automation_status();
-    uint32_t valid[HISTORY_MINUTES], noise[HISTORY_MINUTES];
-    history_per_minute(valid, noise);
+    uint32_t valid[HISTORY_MINUTES], noise[HISTORY_MINUTES], rejects[HISTORY_MINUTES];
+    history_per_minute(valid, noise, rejects);
 
     writer_t w = { .req = req };
     char line[256];

@@ -12,14 +12,14 @@ static const char *TAG = "ringlog";
 #define SECTOR      4096
 #define EMPTY_SEQ   0xFFFFFFFF
 
-// Registro gravado na flash: 32 bytes, 128 por setor
+// Registro gravado na flash: 64 bytes, 64 por setor
 typedef struct __attribute__((packed)) {
     uint32_t seq;
     uint8_t data[RINGLOG_DATA];
     uint32_t crc;
 } raw_t;
 
-_Static_assert(sizeof(raw_t) == 32, "raw_t deve ter 32 bytes");
+_Static_assert(sizeof(raw_t) == 64 && SECTOR % sizeof(raw_t) == 0, "raw_t deve ter 64 bytes");
 
 typedef enum { REC_OK, REC_EMPTY, REC_BAD } rec_state_t;
 

@@ -16,6 +16,10 @@ typedef struct {
     uint16_t stops;
     uint64_t valid;
     uint32_t noise;
+    uint64_t rejects;
+    uint64_t valid_rep;
+    uint32_t rejects_rep;
+    uint16_t reports;
     uint32_t elapsed_s;     // tempo de teste acumulado (sem contar períodos desligado)
     uint32_t epoch;         // hora em que o registro foi gravado (0 = desconhecida)
 } state_rec_t;
