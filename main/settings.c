@@ -23,7 +23,7 @@ void settings_load(void)
     settings_t tmp;
     size_t len = sizeof(tmp);
     if (nvs_get_blob(h, "s", &tmp, &len) == ESP_OK && len == sizeof(tmp) && tmp.mode < MODE_COUNT &&
-        tmp.mode != MODE_AUTO) {
+        tmp.mode != MODE_AUTO && tmp.mode != MODE_AGENT) {
         if (tmp.version == 1) {
             tmp.freq_dhz *= 10;
             tmp.version = SETTINGS_VERSION;
@@ -53,7 +53,7 @@ settings_t *settings_get(void)
 
 int settings_field_count(void)
 {
-    if (s_cfg.mode == MODE_AUTO) {
+    if (s_cfg.mode == MODE_AUTO || s_cfg.mode == MODE_AGENT) {
         return FIELD_FREQ;
     }
     return s_cfg.mode == MODE_CONT ? FIELD_AMOUNT : FIELD_COUNT;
