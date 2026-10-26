@@ -9,8 +9,8 @@
 #define TIME_MAX_S      (60 * 60)
 #define QTY_MAX         10000
 
-// MODE_AUTO só existe no menu: ao confirmar, entra no modo Automação e nunca é salvo
-typedef enum { MODE_TIME = 0, MODE_QTY = 1, MODE_CONT = 2, MODE_AUTO = 3, MODE_COUNT } run_mode_t;
+// MODE_AUTO e MODE_AGENT só existem no menu: ao confirmar, entram no modo e nunca são salvos
+typedef enum { MODE_TIME = 0, MODE_QTY = 1, MODE_CONT = 2, MODE_AUTO = 3, MODE_AGENT = 4, MODE_COUNT } run_mode_t;
 
 typedef struct {
     uint8_t version;
@@ -27,7 +27,7 @@ typedef enum { FIELD_MODE, FIELD_FREQ, FIELD_DUTY, FIELD_AMOUNT, FIELD_COUNT } s
 void settings_load(void);
 void settings_save(void);
 settings_t *settings_get(void);
-// Número de campos visíveis no modo atual (no Contínuo não há Tempo/Qtde; na Automação só o Modo)
+// Número de campos visíveis no modo atual (no Contínuo não há Tempo/Qtde; na Automação e no Agente só o Modo)
 int settings_field_count(void);
 // Altera um campo em `steps` cliques do encoder; `accel` = 1, 10 ou 100
 void settings_adjust(settings_field_t field, int steps, int accel);

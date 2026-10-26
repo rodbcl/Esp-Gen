@@ -9,6 +9,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "agent.h"
 #include "automation.h"
 #include "board.h"
 #include "button.h"
@@ -27,9 +28,9 @@ static const char *TAG = "ui";
 #define STOP_HOLD_MS    2000    // tempo segurando START para parar a geração
 #define AUTO_ROTATE_MS  3000    // modo Automação: troca da informação na 2ª linha
 
-typedef enum { UI_NAV, UI_EDIT, UI_RUN, UI_MSG, UI_AUTO } ui_state_t;
+typedef enum { UI_NAV, UI_EDIT, UI_RUN, UI_MSG, UI_AUTO, UI_AGENT } ui_state_t;
 
-static const char *const MODE_NAMES[MODE_COUNT] = { "Tempo", "Qtde", "Continuo", "Automacao" };
+static const char *const MODE_NAMES[MODE_COUNT] = { "Tempo", "Qtde", "Continuo", "Automacao", "Agente" };
 
 static ui_state_t s_state = UI_NAV;
 static settings_t *s_cfg;
@@ -67,6 +68,12 @@ static void enter_auto(void)
 {
     automation_enter();
     s_state = UI_AUTO;
+}
+
+static void enter_agent(void)
+{
+    agent_enter();
+    s_state = UI_AGENT;
 }
 
 //Tela
@@ -148,6 +155,35 @@ static void render_auto(void)
     screen_printf(3, "Segure START:sair");
 }
 
+/*
+ * Agente: estado da rede; conectado, o IP e o nome do gerador na rede se alternam.
+ */
+static void render_agent(void)
+{
+    agent_status_t st = agent_status();
+    int slot = (int)(esp_timer_get_time() / (AUTO_ROTATE_MS * 1000LL)) % 2;
+
+    if (!wifi_sta_ssid()[0]) {
+        screen_printf(0, "Agente: sem rede");
+        screen_printf(1, "Ver wifi_secrets");
+    } else if (st.failed) {
+        screen_printf(0, "Agente: erro");
+        screen_printf(1, "Wi-Fi nao ligou");
+    } else if (st.wifi != WIFI_STA_CONNECTED) {
+        screen_printf(0, "Agente: Wi-Fi...");
+        screen_printf(1, "%s", wifi_sta_ssid());
+    } else {
+        screen_printf(0, "Agente pronto");
+        if (slot == 0) {
+            screen_printf(1, "%s", st.ip);
+        } else {
+            screen_printf(1, "%s", wifi_sta_hostname());
+        }
+    }
+    screen_printf(2, "%s", wifi_sta_ssid());
+    screen_printf(3, "Segure START:sair");
+}
+
 static void render(void)
 {
     screen_begin();
@@ -200,6 +236,8 @@ static void render(void)
         screen_printf(1, "%s", s_msg[1]);
     } else if (s_state == UI_AUTO) {
         render_auto();
+    } else if (s_state == UI_AGENT) {
+        render_agent();
     }
 
     screen_flush();
@@ -234,10 +272,15 @@ static void ui_task(void *arg)
             if (steps) {
                 settings_adjust(s_cursor, steps, encoder_accel(steps, now));
             }
-            if (enc_click && s_cfg->mode == MODE_AUTO) {
-                // A Automação não é salva: ao sair dela o menu volta no modo anterior
+            if (enc_click && (s_cfg->mode == MODE_AUTO || s_cfg->mode == MODE_AGENT)) {
+                // Automação e Agente não são salvos: ao sair deles o menu volta no modo anterior
+                bool agent = s_cfg->mode == MODE_AGENT;
                 s_cfg->mode = s_edit_backup.mode;
-                enter_auto();
+                if (agent) {
+                    enter_agent();
+                } else {
+                    enter_auto();
+                }
             } else if (enc_click) {
                 if (memcmp(&s_edit_backup, s_cfg, sizeof(*s_cfg)) != 0) {
                     settings_save();
@@ -280,6 +323,14 @@ static void ui_task(void *arg)
                 bool was_running = automation_status().running;
                 automation_exit();
                 show_msg(was_running ? "Teste parado" : "Automacao", "Wi-Fi desligado", MSG_MS);
+            }
+            break;
+
+        case UI_AGENT:
+            // Segurar START sai do modo, interrompendo o programa se houver
+            if (start_hold) {
+                agent_exit();
+                show_msg("Agente", "Wi-Fi desligado", MSG_MS);
             }
             break;
         }
