@@ -22,7 +22,7 @@
 static const char *TAG = "auto";
 
 #define NVS_NS              "auto"
-#define PROFILE_VERSION     2
+#define PROFILE_VERSION     3   // v3: paradas configuradas no running (perfis antigos voltam ao padrão)
 #define SAVE_PERIOD_MS      1000    // estado gravado a cada segundo enquanto há mudança
 #define SAVE_IDLE_S         60      // sem mudança (máquina parada), grava ao menos a cada minuto
 
@@ -30,9 +30,6 @@ typedef struct {
     uint8_t version;
     auto_profile_t p;
 } stored_profile_t;
-
-// Versão 1: perfil sem as saídas extras (os campos novos vêm depois de noise_guard_us)
-#define PROFILE_V1_LEN  (offsetof(stored_profile_t, p) + offsetof(auto_profile_t, running_enabled))
 
 static SemaphoreHandle_t s_mtx;
 static auto_profile_t s_prof;
@@ -54,15 +51,18 @@ static void load_profile(void)
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) {
         return;
     }
-    // Perfil da versão 1: os campos novos ficam com o valor padrão
-    stored_profile_t sp = { .p = s_prof };
+    stored_profile_t sp;
     size_t len = sizeof(sp);
-    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK &&
-        ((sp.version == PROFILE_VERSION && len == sizeof(sp)) || (sp.version == 1 && len == PROFILE_V1_LEN)) &&
+    if (nvs_get_blob(h, "prof", &sp, &len) == ESP_OK && len == sizeof(sp) && sp.version == PROFILE_VERSION &&
         auto_gen_validate(&sp.p) == NULL) {
         s_prof = sp.p;
     }
     nvs_get_u32(h, "start", &s_started_at);
+    // Fuso do navegador: os horários de parada continuam certos após uma queda de energia
+    int32_t tz;
+    if (nvs_get_i32(h, "tz", &tz) == ESP_OK) {
+        wallclock_set_tz(tz);
+    }
     nvs_close(h);
 }
 
@@ -75,6 +75,20 @@ static void save_profile(void)
     stored_profile_t sp = { .version = PROFILE_VERSION, .p = s_prof };
     nvs_set_blob(h, "prof", &sp, sizeof(sp));
     nvs_commit(h);
+    nvs_close(h);
+}
+
+static void save_tz(int32_t tz_min)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) {
+        return;
+    }
+    int32_t old;
+    if (nvs_get_i32(h, "tz", &old) != ESP_OK || old != tz_min) {
+        nvs_set_i32(h, "tz", tz_min);
+        nvs_commit(h);
+    }
     nvs_close(h);
 }
 
@@ -129,7 +143,11 @@ static void save_state(void)
 
 static void begin_generation(void)
 {
-    auto_gen_begin(&s_prof, esp_random());
+    uint32_t now = wallclock_now();
+    auto_gen_begin(&s_prof, esp_random(), now ? now + wallclock_tz() * 60 : 0);
+    if (!now && auto_gen_needs_clock(&s_prof)) {
+        ESP_LOGW(TAG, "hora desconhecida: paradas em horários do dia desativadas");
+    }
     if (pulse_gen_start_source(auto_gen_next, NULL) != ESP_OK) {
         ESP_LOGE(TAG, "falha ao iniciar a geração");
         return;
@@ -255,6 +273,8 @@ const char *automation_start(void)
         err = "O modo Automação não está ativo.";
     } else if (s_running) {
         err = "Já existe um teste rodando.";
+    } else if (auto_gen_needs_clock(&s_prof) && !wallclock_now()) {
+        err = "Hora desconhecida: recarregue a página para enviar a hora do celular.";
     } else if ((err = auto_gen_validate(&s_prof)) == NULL) {
         tally_reset(NULL);
         s_elapsed_base = 0;
@@ -309,6 +329,7 @@ void automation_set_time(uint32_t epoch, int32_t tz_min)
 {
     xSemaphoreTake(s_mtx, portMAX_DELAY);
     wallclock_set_tz(tz_min);
+    save_tz(tz_min);
     // Hora estimada após queda de energia: a diferença corrige o histórico
     uint32_t estimated = wallclock_now();
     bool fix = !wallclock_confirmed() && estimated != 0;

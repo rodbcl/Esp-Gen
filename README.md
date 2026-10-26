@@ -87,10 +87,15 @@ EspGen-3F2A
 | Senha | `espgen123` (`WIFI_AP_PASS` em [wifi_ap.h](main/wifi_ap.h)) |
 | Página | `http://192.168.4.1` |
 
-A configuração do teste (faixa de frequência, largura do pulso, paradas, ruído) e o início/fim do teste são feitos pela página. Com um teste rodando, o LCD mostra os pulsos válidos enviados e alterna entre ritmo atual (ou parada), tempo de teste e nome do AP.
+A configuração do teste (faixa de frequência, largura do pulso, running e paradas, ruído, qualidade, stop report) e o início/fim do teste são feitos pela página. Com um teste rodando, o LCD mostra os pulsos válidos enviados e alterna entre ritmo atual (ou parada), tempo de teste e nome do AP.
 
 - **Saídas extras**, cada uma com a sua chave no perfil (desligada = 0 V o teste todo):
-  - **Running** (GPIO23): 24 V com a máquina rodando, 0 V durante as paradas. Nenhum pulso de produção sai com a máquina parada
+  - **Running** (GPIO23): 24 V com a máquina rodando, 0 V durante as paradas. As paradas da máquina são configuradas aqui; com o running desligado a máquina nunca para. Regras, que podem ser combinadas (paradas sobrepostas viram uma só):
+    - **Ciclo fixo**: roda X min, para Y min, desde o início do teste
+    - **Horários do dia**: até 8 horários fixos com duração (ex.: almoço 12:00 por 60 min), na hora do celular
+    - **Paradas por dia**: N paradas por dia em horários sorteados, com duração mínima/máxima
+
+    Nenhum pulso de produção sai com a máquina parada; um teste iniciado no meio de uma parada começa parado. As regras por horário usam a hora e o fuso enviados pela página (o fuso fica salvo na NVS); sem hora conhecida, o teste não inicia
   - **Qualidade** (GPIO19): uma % dos pulsos de produção vira refugo; o pulso de refugo sai um atraso configurável depois do pulso de produção
   - **Stop report** (GPIO18): paradas justificadas, com intervalo e duração sorteados, independentes das paradas da máquina. Com ele em 24 V o sistema ignora os demais sinais, que continuam normalmente
 - **Contabilidade**: o gerador soma separadamente os **pulsos válidos** (o que o contador deve mostrar), os **refugos**, os **ruídos** injetados (que o contador não deve contar) e o que foi enviado com o **stop report** ativo (fica fora do esperado na conferência)
@@ -158,4 +163,4 @@ main/
 
 ### Como funciona o gerador
 
-Cada saída é um canal `rmt_out`, que usa um **RMT simple encoder** para montar os símbolos sob demanda, enquanto a transmissão acontece. Cada trecho (nível e duração) vem de uma **fonte**: a de frequência fixa do `pulse_gen`, usada pelos modos Tempo, Qtde e Contínuo, ou o simulador de máquina (`auto_gen`) da Automação, que tem uma fonte para cada saída. Cada parte da simulação sorteia numa sequência própria a partir da mesma semente, então as fontes de running, qualidade e stop report refazem as mesmas paradas e os mesmos pulsos da produção sem depender uma da outra, e todas seguem a mesma linha do tempo. O caminho da interrupção roda da IRAM (`CONFIG_RMT_ISR_IRAM_SAFE`), para que gravações na flash não atrasem a recarga do RMT. Por isso trens de pulsos com milhões de períodos funcionam sem ocupar RAM. Quando o período não é múltiplo exato do tick de 0,1 µs, o resto é distribuído por um acumulador, de modo que a frequência média fica exata. Cada meio-símbolo dura no máximo 200 µs, e assim um STOP esvazia a memória do RMT em poucos milissegundos.
+Cada saída é um canal `rmt_out`, que usa um **RMT simple encoder** para montar os símbolos sob demanda, enquanto a transmissão acontece. Cada trecho (nível e duração) vem de uma **fonte**: a de frequência fixa do `pulse_gen`, usada pelos modos Tempo, Qtde e Contínuo, ou o simulador de máquina (`auto_gen`) da Automação, que tem uma fonte para cada saída. Cada parte da simulação sorteia numa sequência própria a partir da mesma semente, e as paradas são uma função do tempo (cada regra calcula a sua parada que contém um instante ou a próxima). Então as fontes de running, qualidade e stop report refazem as mesmas paradas e os mesmos pulsos da produção sem depender uma da outra, e todas seguem a mesma linha do tempo. O caminho da interrupção roda da IRAM (`CONFIG_RMT_ISR_IRAM_SAFE`), para que gravações na flash não atrasem a recarga do RMT. Por isso trens de pulsos com milhões de períodos funcionam sem ocupar RAM. Quando o período não é múltiplo exato do tick de 0,1 µs, o resto é distribuído por um acumulador, de modo que a frequência média fica exata. Cada meio-símbolo dura no máximo 200 µs, e assim um STOP esvazia a memória do RMT em poucos milissegundos.
